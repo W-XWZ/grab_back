@@ -1,0 +1,219 @@
+	
+/**
+ * dataTables的包装处理
+ * @author mdc
+ * @param options
+ * @returns
+ */
+function dataTablesWrap(options){
+	
+	//参数
+	var defaults = {
+		render:undefined,	//要将dataTable添加到该元素下,jquery获取元素方式
+		url:undefined,//请求的默认url
+		ajaxData:undefined, //ajax请求时的数据 type:function
+		form:undefined, //ajax请求时的表单,和ajaxData只能取其一
+		displayLength:10, //默认每页显示条数
+		type:'post',
+		bFilter:false,// 过滤功能
+		seq:false, //显示序号:如果类型是数字,则显示, 从0开始; 否则不显示
+		info: true, //是否显示页码,条数,等详细信息
+		pagingType: 'bootstrap',//分页样式的类型
+		lengthChange:false, //是否允许用户改变表格每页显示的记录数
+		paging:true, //是否开启本地分页
+		order:[],//默认排序字段  例如:[ 1, 'asc' ] //排序第二列,默认升序
+		bSort:false, //默认部排序
+		columns:[], //数据表的列
+		searching: false, //搜索
+	    processing: true, //是否显示处理状态(排序的时候，数据很多耗费时间长的话，也会显示这个)
+	    serverSide: true,
+	    deferRender:true,
+	    slected:true, //是否可以选择
+		aLengthMenu:[5,10,25,50,100],
+		
+		dataSrc:function(json){return json.data;},
+	    fixedHeader: true,
+		rowCallback:undefined, //添加行事件
+        drawCallback : undefined,
+        stateSave: true,
+		//这是个datatables的select插件,需要引入相关文件
+		//<@p.script ["jquery", "bootstrap", "datatable.select"] />
+		select: {
+			info:false, //是否显示左下角信息
+	        items: 'row', //'column':选择列    'cell':单元格  row:选择行
+	        style:'single' // single:当行选择   multi:多行  os:操作系统个选择方式   multi+shift:使用快捷键多选
+	    },
+		language: {
+	    	sProcessing:   '处理中...',
+	    	sLengthMenu:   '_MENU_',
+	    	sZeroRecords:  '没有检索到数据',
+	    	sInfo:         ' _PAGE_/_PAGES_ 页，共 _TOTAL_ 条',
+	    	sInfoEmpty:    '第 0 至 0 条记录，共 0 条',
+	    	sInfoFiltered: '(由 _MAX_ 条记录过滤)',
+	    	sInfoPostFix:  '',
+	    	sSearch:       '搜索:',
+	    	sUrl:          '',
+	    	sEmptyTable:     '<div class="text-center" style="padding-top:2px">无查询结果</div>',
+	    	sLoadingRecords: '载入中...',
+	    	sInfoThousands:  ',',
+	    	oPaginate: {
+	    		sFirst:		'首页',
+	    		sPrevious:	'<img src="'+basePath +'/media/image/table/sPrevious.png">',
+	    		sNext:		'<img src="'+basePath +'/media/image/table/sNext.png">',
+	    		sLast:		'尾页',
+	    		sJump:		'跳转'
+	    	},
+	    	oAria: {
+	    		sSortAscending:  ': 以升序排列此列',
+	    		sSortDescending: ': 以降序排列此列'
+	    	},
+	    	select: {
+	            rows: {
+	            	columns: '选中 %d 列',
+	                _: '选中 %d 行',
+	                0: '点击行选择',
+	                1: '选中 1 行'
+	            }
+	        }
+	    }
+	};
+	
+	var options = $.extend(true, defaults, options);
+
+	var cols = options.columns;
+	if(cols && cols.length && options.order && options.order.length) { //处理排序
+		options.bSort = true ; //开启排序模式
+	}
+	
+	var hasDetail = false; //是否含有行详情
+	//需要排序时,把默认的sortable为undefined改为false,即不排序
+	for(var i=0, j=cols.length; i < j; i++) {
+		options.bSort && cols[i].sortable === undefined && (cols[i].sortable = false);
+		
+		if(cols[i] && $.type(cols[i].detail) === 'boolean' && cols[i].detail){
+			cols[i].orderable = false;
+			hasDetail = true;
+			
+			if($.isFunction(cols[i].render)){
+				var render = cols[i].render;
+				
+				cols[i].render = function(){
+					return '<span class="row-details row-details-close"></span>' + render.apply(null, arguments);
+				};
+			} else {
+				cols[i].render = function(){
+					return '<span class="row-details row-details-close"></span>';
+				};
+			}
+		}
+	}
+	
+	
+	//处理序号和
+	if($.isNumeric(options.seq) && cols.length) {
+		options.fnRowCallback = function(nRow, aData, iDisplayIndex) {
+			options.rowCallback && options.rowCallback.apply(this, arguments);
+	     	var page_start = this.fnSettings()._iDisplayStart;//当前页开始
+	     	$('td:eq(' + options.seq + ')', nRow).html( iDisplayIndex + 1 + page_start );
+	     };
+	 
+	     options.columns.splice(options.seq, 0, {sortable: false, data:null, searchable:false, render: function (data, type, full, meta){return 1;}});
+	} else {
+		options.fnRowCallback = options.rowCallback;
+	}
+	
+	//把form表单转为Map
+	function formToMap(form){
+		var map = {}, item, list = $(options.form).serializeArray();
+		
+		for(var i=0; i<list.length; i++) {
+			item = list[i];
+			
+			if(map[item.name]) { //如果已经存在key,将转变为数组
+				$.isArray(map[item.name]) ? map[item.name].push(item.value) : (map[item.name] = [map[item.name], item.value]);
+			} else {
+				map[item.name] = item.value;
+			}
+		}
+		
+		return map;
+	}
+
+    (!options.data) && options.serverSide && (options.ajax = {
+ 	   type: options.type,
+ 	   url:options.url,
+ 	   data:function(data){
+			return $.extend(true, data, $.type(options.ajaxData) == 'function'? options.ajaxData() : options.ajaxData, (options.form && formToMap(options.form)));
+		},
+ 	   dataSrc:function(json){ //对异常数据的处理
+ 		  var data = options.dataSrc.call(this, json);
+ 		   if(data) return data;
+ 		   return (json.data = []);
+ 	   }
+	}, options.aaData='data');
+	
+	//处理翻页时的回调
+	options.fnDrawCallback = function(table){
+		var data = table.jqXHR? table.json.data : this.api().data();
+		//当翻页的时
+		options.onChangePage && options.onChangePage(table, data);
+
+		//当没有数据的时候,隐藏分页信息
+    	if (data && data.length) {
+			$(options.render + '_paginate').show();
+			$(options.render + '_info').show();
+			$(options.render + '_length').show();
+		} else {
+			$(options.render + '_paginate').hide();
+			$(options.render + '_info').hide();
+			$(options.render + '_length').hide();
+		}
+
+		if(options.drawCallback && typeof options.drawCallback == "function"){
+            options.drawCallback(table.jqXHR? table.json : options.data);
+        }
+    };
+	
+    var dataTable = $(options.render).dataTable(options);
+	if(options.slected) {
+		var prevRow = {removeClass:$.noop};
+		
+		$('tbody', options.render).on('click', 'tr', function(evt){
+			var $this = $(this);
+			if($('.dataTables_empty', $this).length || prevRow == $this) return ;
+			
+			prevRow.removeClass('info')
+			$this.addClass('info');
+			prevRow = $this;
+		});
+	}
+    
+    if(hasDetail) {
+	    dataTable.on('click', 'tbody td .row-details', function(event) {
+	    	event.stopPropagation();//阻止冒泡, 否则会选中行
+	        var nTr = $(this).closest('tr');
+	        
+	        if (dataTable.fnIsOpen(nTr)) { //判断是否已打开
+	            $(this).addClass('row-details-close').removeClass('row-details-open');
+	            dataTable.triggerHandler('detail.close', [dataTable, nTr, nTr.data()] );
+	            return dataTable.fnClose(nTr);
+	        
+	        } else {
+	            $(this).addClass('row-details-open').removeClass('row-details-close');
+	            dataTable.triggerHandler('detail.open', [dataTable, nTr, nTr.data()] );
+	        }
+	        
+	        if ( event.isDefaultPrevented() ) {
+				return;
+			}
+	    });
+	}
+    
+    return dataTable;
+}
+
+//忽略异常
+$.fn.dataTable.ext.errMode = function(datetable, h, message){
+	// $alert(message);
+};
+

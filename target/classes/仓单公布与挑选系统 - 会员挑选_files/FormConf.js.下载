@@ -1,0 +1,534 @@
+/**
+ * Created by mdc on 2017/10/17.
+ */
+window.SYSTEM_DIC_DATA = {};
+
+/**
+ * 获取字典数据
+ * @param code
+ * @returns
+ */
+function getDicJson(code, fn){
+	var callback = function(code, fn){
+		var list = (window.SYSTEM_DIC_DATA[code].data || {}).children || {};
+	    if(fn){
+	        for(var key in list) {
+	            fn(key, list[key]);
+	        }
+	    }
+		return list;
+	};
+	
+	if(window.SYSTEM_DIC_DATA[code] && window.SYSTEM_DIC_DATA[code].loaded){
+		return callback(code, fn);
+	}
+	
+	$.ajax({
+		url:basePath + '/member/option/getDicJson?r=' + Math.random(), 
+		data: {code: (code||'').replace(/^dic:/, '')},
+		success:function(data){
+			window.SYSTEM_DIC_DATA[code] = {loaded:true, data:data};
+		},
+		type:'post',
+		async:false
+	});
+	
+	return callback(code, fn);
+}
+
+
+/**
+ * 把字段名称转换为驼峰形式的属性名称
+ * @param name 字段名称
+ * @returns
+ */
+function convertToPropertyName(name) {
+	var result = '';
+	var nextIsUpper = false;
+	
+	if ((name != null) && (name.length > 0)) {
+		if ((name.length > 1) && (name.substring(1, 2) == "_")) {
+			result += name.substring(0, 1).toUpperCase();
+		} else {
+			result += name.substring(0, 1).toLowerCase();
+		}
+		
+		for (var i = 1; i < name.length; ++i) {
+			var s = name.substring(i, i + 1);
+			if (s == "_") {
+				nextIsUpper = true;
+			} else if (nextIsUpper) {
+				result += s.toUpperCase();
+				nextIsUpper = false;
+			} else {
+				result +=  s.toLowerCase();
+			}
+		}
+	}
+
+	return result;
+}
+
+(function(){
+	
+    /**
+     *
+     * @param options
+     * {
+     * list:[
+     * {
+            inputType:'date',
+            dataLength:20,
+            readonly:true,
+            mandatroy:false,
+            attrAlias:'日期',
+            attrName:'startTime',
+            validateRule:'/^\\d{6}$/:请填写6位数字;length(~10)'
+            dataType:'text',
+            attrValue:'2012-12-5',
+            formType:1 //此处可以覆盖外层的formType属性
+        }
+     * ],
+     * size:3, //每行显示的控件个数
+     * formType:1 // 表单类型（1：筛选条件；2：查询列表；3：表单；4：详情；）
+     * }
+     * @returns {{getData: getData}}
+     * @constructor
+     */
+    $.fn.FormConf = function (options) {
+        var defaults = {
+            list:[],
+            size:3, //每行显示的控件个数
+            master:{}, //主对象
+            formType:1 // 表单类型（1：筛选条件；2：查询列表；3：表单；4：详情；）
+        };
+
+        var that = this;
+
+        var opts = $.extend(defaults, options);
+        var item, html = '';
+        for(var i=0; i<opts.list.length; i++) {
+        	var item = opts.list[i];
+        	if(item.masterAttr) {
+        		item.attrValue = opts.master[convertToPropertyName(item.masterAttr)];
+        	}
+        	
+            if (item.line == 1) {
+            	item = new FormConfItem(that, item, item.formType || opts.formType, item.size || 1);
+            	html += '<div class="row-fluid">' + item.render() + '</div>';
+            	continue;
+			}
+            
+            item = new FormConfItem(that, item, item.formType || opts.formType, item.size || opts.size);
+            
+            if (i % opts.size == 0){
+                html += '<div class="row-fluid">';
+            }
+
+            html += item.render();
+
+            if (i % opts.size == opts.size-1 || i == opts.list.length - 1 || (opts.list[i + 1].line && opts.list[i + 1].line == 1)){
+                html += '</div>';
+            }
+        }
+
+        this.append(html);
+
+        return {
+
+            /**
+             * 获取表单数据
+             * @returns {Array}
+             */
+            getData: function () {
+
+                var item;
+                for(var i=0; i<opts.list.length; i++) {
+                    item = opts.list[i];
+                    if (item.inputType == 'range'){
+                        item.attrValue = [$('#' + item.compId).val(), $('#' + item.compId + '_SECOND').val()];
+                        continue;
+                    }
+
+                    if (item.inputType == 'checkbox'){
+                        item.attrValue = $('[name="' + item.attrname + '"]:checked', that).map(function (idx, ele) {return ele.value;}).get();
+                        continue;
+                    }
+
+                    if (item.inputType == 'radio'){
+                        item.attrValue = $('[name="' + item.attrname + '"]:checked', that).val();
+                        continue;
+                    }
+
+                    if (item.inputType == 'file' || item.dataType == 'binary'){
+                        item.attrValue = $('#' + item.compId + '_FILE').val();
+                        continue;
+                    }
+
+                    if(item.dataType == 'number'){
+                    	if($('#' + item.compId).val()){
+                    		item.attrValue = Number($('#' + item.compId).val());
+                    	}
+                    }else{
+                    	item.attrValue = $('#' + item.compId).val();
+                    }
+                }
+                return opts.list;
+            }
+        }
+    };
+
+    function FormConfItem(container, item, formType, size) {
+        this.container = container;
+        this.item = item;
+        this.formType = formType;
+        this.size = size;
+    }
+
+
+    var idSeq = new Date().getTime();
+    var FormUtil = {
+        createProps:function(item) {
+            var id = item.attrName + '_' + (idSeq++);
+            item.compId = id; //页面组件Id
+
+            
+            var attrs = {
+                label:{value: App.escapeHtml(item.attrAlias + "："), forId:id},
+                props:{
+                    name:{value:item.attrName, isEscape:true},
+                    value:{value:item.attrValue, isEscape:true},
+                    maxlength:{value:item.dataLength, isEscape:false},
+                    id:{value:id, isEscape:false},
+                    readonly:{value:item.readonly? 'readonly' : '', isEscape:false}
+                }
+            };
+            
+            var dataRule = '';
+            if(item.mandatroy || item.validateRule) {
+                dataRule = App.escapeHtml(item.attrAlias) + ':';
+                
+                if(item.mandatroy) {
+                    if(item.inputType == 'radio' || item.inputType == 'checkbox') {
+                        dataRule += 'checked;';
+                    } else {
+                        dataRule += 'required;';
+                    }
+                }
+                
+                if(item.validateRule) {
+                	var clientValidateRule = JSON.parse(item.validateRule).client;
+                	if(clientValidateRule) {
+	                    var rules = clientValidateRule.split(';');
+	                    var rule, ruleName;
+	                    var idx = new Date().getTime() + 1000;
+	                    for(var i=0; i < rules.length; i++) {
+	                        rule = rules[i].split('◆');
+	
+	                        if(rule && rule.length >1){
+	                            ruleName = 'data-rule-' + rule[0];
+	                            attrs.props[ruleName] = {value:'['+ rule[1] + ',\'' + (rule[2] || '格式错误') +  '\']', isEscape:false};
+	                            dataRule += (rule[0] + ';');
+	                        } else if(rule[0]){
+	                            dataRule += (rule[0] + ';');
+	                        }
+	                    }
+	                    attrs.props['data-rule'] = {value:dataRule, isEscape:false};
+	                }
+                }
+            }
+
+            return attrs;
+        },
+
+        /**
+         * 把属性列表组成Html代码
+         * @param props
+         * @returns {string}
+         */
+        getPropHtml: function (props) {
+            var html = '';
+            for(var key in props){
+                if(props[key] && props[key].value) {
+                    html += (key + '="' + (props[key].isEscape? App.escapeHtml(props[key].value):props[key].value) +  '" ');
+                }
+            }
+
+            return html;
+        },
+
+        /**
+         * 获取Url数据, 用于动态的select , radio, checkbox
+         * @param url
+         * @returns {string}
+         */
+        getUrlData:function(url, attrName, fn){
+            var data = null;
+            $.ajax({
+                url: basePath + url.replace(/^url:/, ''),
+                data: {name: attrName},
+                async:false,
+                success:function (result) {
+                    data = result;
+                }
+            });
+
+            var list = data || [];
+            if(fn){
+	            var item;
+	            for(var i=0; i < list.length; i++) {
+	                fn(i, list[i]);
+	            }
+            }
+            
+            return list;
+        },
+
+        doUpload:function (fileId){
+            var frm = $(fileId).closest('form');
+
+            var waiting = $waiting('正在上传文件,请稍候...');
+            // 准备好Options对象
+            var options = {
+                url:basePath + '/member/publish/upload',
+                type:'post',
+                resetForm :false,
+                clearForm:false,
+                dataType:'json',
+                complete:function(){
+                    waiting.close();
+                },
+                error:function(xhr, textStatus, errorThrown){
+                	$(fileId).clearInputs(true);
+                    var message = xhr.responseText;
+                    try{
+                        message = $.parseJSON(message).message;
+                    } catch(e){}
+
+                    $alert(message || '网络错误,请重试');
+                },
+                success: function(result, status, xhr) {
+                	$(fileId).clearInputs(true);
+                    if(result.success) {
+                        $(fileId + '_FILE').val(result.id);
+                        $(fileId + '_FILE_TITLE').text(result.filename);
+                        $notice("文件上传成功");
+                    }else{
+                    	$alert(result.message || '上传失败,请重试');
+                    }
+                    
+                    
+                }
+            };
+
+            frm.ajaxSubmit(options);
+        }
+    };
+
+    FormConfItem.prototype.render = function () {
+        if (this.formType == 1 || this.formType == 3){
+            return this.formRender();
+        } else {
+            return this.viewRender();
+        }
+    };
+
+    FormConfItem.prototype.formRender = function () {
+        var _this = this;
+        var formFn = {
+            label:function (label) {
+                return '<label class="control-label" id="' + label.forId+ '-label" >' + label.value +'</label>';
+            },
+
+            controlGroup:function (label, control) {
+                return '<div class="span' + parseInt(12/_this.size) + ' control-group">' + label + '<div class="controls">' + control + '</div></div>';
+            },
+
+            text:function (props) {
+                if(props.readonly.value && props.value.value){
+                	return '<input type="text" class="m-wrap span12" autocomplete="off" ' + FormUtil.getPropHtml(props)+ ' readonly>';
+                }
+                return '<input type="text" class="m-wrap span12" autocomplete="off" ' + FormUtil.getPropHtml(props)+ '>';
+            },
+            
+            textarea:function (props) {
+                if(props.readonly.value && props.value.value){
+                	return '<textarea class="m-wrap span12" autocomplete="off" ' + FormUtil.getPropHtml(props)+ ' readonly>' + App.escapeHtml(props.value.value)  + '</textarea>';
+                }
+                return '<textarea class="m-wrap span12" autocomplete="off" ' + FormUtil.getPropHtml(props)+ '>' + (_this.item.attrValue  || '')+ '</textarea>';
+            },
+            
+            radio:function (props) {
+            	if(!_this.item.dataSrc) return '';
+            	
+                if (/^url:/.test(_this.item.dataSrc)){
+                    var name = App.escapeHtml(_this.item.attrName);
+
+                    var selectHtml = '';
+                    FormUtil.getUrlData(_this.item.dataSrc, _this.item.attrName, function (i, item) {
+                        selectHtml += '<input type="radio" name="' + name + '"  value="' + item.value + '" ' + (_this.item.attrValue == item.value? 'checked' :'')+ '>';
+                    });
+
+                    return selectHtml;
+                }
+                
+                if (/^dic:/.test(_this.item.dataSrc)){
+	                var selectHtml = '';
+	                getDicJson(_this.item.dataSrc, function(k, v){
+	                	selectHtml += '<input type="radio" name="' + name + '"  value="' + k + '" ' + (_this.item.attrValue == k? 'checked' :'')+ '>';
+	                });
+	
+	                return selectHtml;
+                }
+                
+                return '';
+            },
+
+            select:function (props) {
+            	var selectHtml = '<select class="m-wrap span12" ' + FormUtil.getPropHtml(props) + '><option value=""> --请选择--</option>';
+            	if(!_this.item.dataSrc) return selectHtml + '</select>';
+            	
+                if (/^url:/.test(_this.item.dataSrc)){
+                    FormUtil.getUrlData(_this.item.dataSrc, _this.item.attrName, function (i, item) {
+                        selectHtml += '<option value="' + App.escapeHtml(item.value) + '" ' + (_this.item.attrValue == item.value? 'selected="selected"' :'')+ '>';
+                        selectHtml +=  App.escapeHtml(item.name) + '</option>';
+                    });
+                    selectHtml += '</select>';
+
+                    return selectHtml;
+                }
+
+                if (/^dic:/.test(_this.item.dataSrc)){
+                    getDicJson(_this.item.dataSrc, function (k, v) {
+                        selectHtml += '<option value="' + App.escapeHtml(k) + '" ' + (_this.item.attrValue == k? 'selected="selected"' :'')+ '>';
+                        selectHtml +=  App.escapeHtml(v.name) + '</option>';
+                    });
+                    selectHtml += '</select>';
+
+                    return selectHtml;
+                }
+                
+                return '';
+            },
+
+            checkbox:function (props) {
+            	if(!_this.item.dataSrc) return '';
+            	
+                if (/^url:/.test(_this.item.dataSrc)){
+                    var name = App.escapeHtml(_this.item.attrName);
+
+                    var selectHtml = '';
+                    FormUtil.getUrlData(_this.item.dataSrc, _this.item.attrName, function (i, item) {
+                        selectHtml += '<input type="checkbox" name="' + name + '"  value="' + item.value + '" ' + (_this.item.attrValue == item.value? 'checked' :'')+ '>';
+                    });
+
+                    return selectHtml;
+                }
+
+                if (/^dic:/.test(_this.item.dataSrc)){
+                    var selectHtml = '<select ' + FormUtil.getPropHtml(props) + '><option value=""> --请选择--</option>';
+                    getDicJson(_this.item.dataSrc, function (k, v) {
+                        selectHtml += '<option value="' + App.escapeHtml(k) + '" ' + (_this.item.attrValue == k? 'selected="selected"' :'')+ '>';
+                        selectHtml +=  App.escapeHtml(v.name) + '</option>';
+                    });
+                    selectHtml += '</select>';
+
+                    return selectHtml;
+                }
+                
+                return '';
+            },
+
+            range:function (props) {
+                props.readonly = true;
+
+                var startDateHtml = '', endDateHtml = '', clazz = '';
+                if(_this.item.dataType === 'date') {
+                    clazz = 'Wdate';
+
+                    startDateHtml = " onclick=\"WdatePicker({dateFmt:\'yyyy-MM-dd\', maxDate:\'#F{$dp.$D(\\'" + props.id.value +"_SECOND\\')||\\\'%y-%M-%d\\\'}\'})\"";
+                    endDateHtml = " onclick=\"WdatePicker({dateFmt:\'yyyy-MM-dd\', minDate:\'#F{$dp.$D(\\'" + props.id.value +"\\')}\' })\"";
+                }
+
+                var html  = '<input type="text" placeholder="起始" class="m-wrap ' + clazz + ' span6" autocomplete="off" ' + FormUtil.getPropHtml(props) + startDateHtml + ' >';
+                props.id.value += '_SECOND'
+                html += '<input type="text" placeholder="结束" class="m-wrap ' + clazz + ' span6" autocomplete="off" ' + FormUtil.getPropHtml(props) + endDateHtml + ' >'
+                return html;
+            },
+
+            date:function (props) {
+                props.readonly.value = true;
+                var dateHtml = " onclick=\"WdatePicker({dateFmt:'yyyy-MM-dd'})\"";
+                return '<input type="text" class="m-wrap span12 Wdate" autocomplete="off" ' + FormUtil.getPropHtml(props) + dateHtml + '>';
+            },
+
+            binary:function (props) {
+                if(!$.fn.ajaxForm){
+                    $.ajax({url:basePath + '/media/libs/jquery.form/jquery.form.min.js', type:'get', dataType:'script', async:false});
+                    props['data-rule'] = null;
+                    props.value.value = null;
+                }
+
+                _this.container.on('change', '#' + props.id.value, function () {
+                	if (this.value) {
+                		FormUtil.doUpload('#' + props.id.value);
+					}
+                });
+
+                return '<input type="hidden" id="' + props.id.value+'_FILE" value="' + (_this.item.attrValue || '')+ '"> '
+                 + '<div class="input-append fileupload" style="display:block"><div class="btn blue btn-file"> <span>选择文件</span> <input type="file" name="file"  name="file" ' + FormUtil.getPropHtml(props)+ '> </div><div id="'
+                 + props.id.value+'_FILE_TITLE" class="uneditable-input m-wrap">' + (_this.item.binaryTitle || '未选择文件') + '</div></div>';
+            }
+        };
+
+        if(this.item.inputType !== 'controlGroup' && this.item.inputType !== 'label'){
+            var propsLabel = FormUtil.createProps(this.item);
+            return formFn.controlGroup(formFn.label(propsLabel.label), formFn[this.item.inputType || 'text'](propsLabel.props));
+        }
+
+        return '';
+    };
+
+    /**
+     * 渲染详情表单
+     * @returns {*}
+     */
+    FormConfItem.prototype.viewRender = function () {
+        var _this = this;
+        var getHtml = function (labelContent, value, isEscape) {
+            var labelHtml = '<label class="control-label">' + App.escapeHtml(labelContent + '：') +'</label>';
+            return '<div class="span' + parseInt(12/_this.size) + ' control-group">' + labelHtml + '<div class="controls">' + (isEscape?App.escapeHtml(value):value) + '</div></div>';
+        };
+
+        var inputType = this.item.inputType;
+
+        if(inputType == 'binary'){
+            var link = '<a href="' + basePath + '/member/publish/download?attrValId='+ _this.item.attrValue +'">' + (_this.item.binaryTitle) + '</a>';
+            return getHtml(App.escapeHtml(_this.item.attrAlias), link, false);
+        }
+
+        if(inputType == 'radio' || inputType == 'checkbox' || inputType == 'select'){
+            if (/^dic:/.test(_this.item.dataSrc)){
+                var html = getDicJson(_this.item.dataSrc)[_this.item.attrValue];
+                return getHtml(App.escapeHtml(_this.item.attrAlias), html, false);
+            }
+
+            if (/^url:/.test(_this.item.dataSrc)){
+                var name = App.escapeHtml(_this.item.attrName);
+
+                var selectHtml = '';
+                FormUtil.getUrlData(_this.item.dataSrc, _this.item.attrName, function (i, item) {
+                    if(_this.item.attrValue == item.value){
+                        return (selectHtml = '<span>' + App.escapeHtml(item.value) + '</span>');
+                    }
+                    return ;
+                });
+
+                return getHtml(App.escapeHtml(_this.item.attrAlias), selectHtml, false);
+            }
+        }
+
+        return getHtml(App.escapeHtml(_this.item.attrAlias), _this.item.attrValue, true);
+    };
+
+})();

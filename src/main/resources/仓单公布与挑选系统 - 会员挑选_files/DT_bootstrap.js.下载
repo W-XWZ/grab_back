@@ -1,0 +1,210 @@
+/* Set the defaults for DataTables initialisation */
+$.extend( true, $.fn.dataTable.defaults, {
+	"sDom": "<'row-fluid'<'pull-right'f>r>t<'row-fluid'<'dt-info'i><'dt-info'l><'pull-right'p>>",
+	"sPaginationType": "bootstrap",
+	"oLanguage": {
+		"sLengthMenu": "_MENU_ records per page",
+		"paginate": {
+            "previous": '<i class="fa fa-angle-left"></i>',
+            "next": '<i class="fa fa-angle-right"></i>'
+        }
+	}
+} );
+
+
+/* Default class modification */
+$.extend( $.fn.dataTableExt.oStdClasses, {
+	 "sWrapper": "dataTables_wrapper",
+	    "sFilterInput": "form-control input-inline",
+	    "sLengthSelect": "form-control input-inline"
+} );
+
+
+/* API method to get paging information */
+$.fn.dataTableExt.oApi.fnPagingInfo = function ( oSettings )
+{
+	return {
+		"iStart":         oSettings._iDisplayStart,
+		"iEnd":           oSettings.fnDisplayEnd(),
+		"iLength":        oSettings._iDisplayLength,
+		"iTotal":         oSettings.fnRecordsTotal(),
+		"iFilteredTotal": oSettings.fnRecordsDisplay(),
+		"iPage":          Math.ceil( oSettings._iDisplayStart / oSettings._iDisplayLength ),
+		"iTotalPages":    Math.ceil( oSettings.fnRecordsDisplay() / oSettings._iDisplayLength )
+	};
+};
+
+/* Bootstrap style pagination control */
+$.extend( $.fn.dataTableExt.oPagination, {
+	"bootstrap": {
+		"fnInit": function( oSettings, nPaging, fnDraw ) {
+			var oLang = oSettings.oLanguage.oPaginate;
+			var fnClickHandler = function (e) {
+                e.preventDefault();
+                if (oSettings.oApi._fnPageChange(oSettings, e.data.action)) {
+                    fnDraw(oSettings);
+                }
+            };
+			
+			$(nPaging).addClass('pagination').append(
+	                '<ul>' +
+	                '<li class="prev disabled"><a href="javascript:" title="' + oLang.sFirst + '"><span class="hidden-480">' + oLang.sFirst + '</span></a></li>' +
+	                '<li class="prev disabled"><a href="javascript:" ><span class="hidden-480">' + oLang.sPrevious + '</span></a></li>' +
+	                '<li class="next disabled"><a href="javascript:" ><span class="hidden-480">' + oLang.sNext + '</span></a></li>' +
+	                '<li class="next disabled"><a href="javascript:" title="' + oLang.sLast + '"><span class="hidden-480">' + oLang.sLast+ '</span></a></li>' +
+	                '<div class="btn-group hidden-480"><input type="text" class="text-redirect" maxlength="8"><button type="button" class="btn btn-default btn-paging-jump">' + oLang.sJump + '</button></div>'+
+	                '</ul>'
+	            );
+			
+			var els = $('a', nPaging);
+			 //datatables分页跳转
+			$('.btn-paging-jump', nPaging).on('click', function(){
+
+				var oPaging = oSettings.oInstance.fnPagingInfo();
+				if(!oPaging.iTotalPages) return;
+				
+				var inputPageNum = $('.text-redirect', nPaging);
+				var ipage = parseInt(inputPageNum.val());
+                
+
+        		if(isNaN(ipage) || ipage < 1){
+                    ipage = 1;
+                } else if(ipage > oPaging.iTotalPages){
+                    ipage = oPaging.iTotalPages;
+                }
+                
+                inputPageNum.val(ipage);
+                ipage--;
+                oSettings._iDisplayStart = ipage * oPaging.iLength;
+                fnDraw( oSettings );
+			});
+
+			//回车事件
+			$('.text-redirect', nPaging).on('keypress', function(e){
+				if(e.which ==13) {
+					$('.btn-paging-jump', nPaging).trigger('click');
+					return false;
+				}
+			});
+        	
+	      var els = $('a', nPaging);
+	      $(els[0]).bind('click.DT', {
+	          action: "first"
+	      }, fnClickHandler);
+	      $(els[1]).bind('click.DT', {
+	          action: "previous"
+	      }, fnClickHandler);
+	      $(els[2]).bind('click.DT', {
+	          action: "next"
+	      }, fnClickHandler);
+	      $(els[3]).bind('click.DT', {
+	          action: "last"
+	      }, fnClickHandler);
+		},
+
+		"fnUpdate": function ( oSettings, fnDraw ) {
+			 var iListLength = 5;
+	            var oPaging = oSettings.oInstance.fnPagingInfo();
+	            var an = oSettings.aanFeatures.p;
+	            var i, j, sClass, iStart, iEnd, iHalf = Math.floor(iListLength / 2);
+
+	            if (oPaging.iTotalPages < iListLength) {
+	                iStart = 1;
+	                iEnd = oPaging.iTotalPages;
+	            } else if (oPaging.iPage <= iHalf) {
+	                iStart = 1;
+	                iEnd = iListLength;
+	            } else if (oPaging.iPage >= (oPaging.iTotalPages - iHalf)) {
+	                iStart = oPaging.iTotalPages - iListLength + 1;
+	                iEnd = oPaging.iTotalPages;
+	            } else {
+	                iStart = oPaging.iPage - iHalf + 1;
+	                iEnd = iStart + iListLength - 1;
+	            }
+
+
+
+	            for (i = 0, iLen = an.length; i < iLen; i++) {
+	                if (oPaging.iTotalPages <= 0) {
+	                    $('.pagination', an[i]).css('visibility', 'hidden');
+	                } else {
+	                    $('.pagination', an[i]).css('visibility', 'visible');
+	                }
+
+	                // Remove the middle elements
+	                $('li:gt(1)', an[i]).filter(':not(.next)').remove();
+
+	                // Add the new list items and their event handlers
+	                for (j = iStart; j <= iEnd; j++) {
+	                    sClass = (j == oPaging.iPage + 1) ? 'class="active"' : '';
+	                    $('<li ' + sClass + '><a href="javascript:">' + j + '</a></li>')
+	                        .insertBefore($('li.next:first', an[i])[0])
+	                        .bind('click', j, function (e) {
+	                            e.preventDefault();
+	                            oSettings._iDisplayStart = (e.data - 1) * oPaging.iLength;
+	                            fnDraw(oSettings);
+	                        });
+	                }
+
+	                // Add / remove disabled classes from the static elements
+	                if (oPaging.iPage === 0) {
+	                    $('li.prev', an[i]).addClass('disabled');
+	                } else {
+	                    $('li.prev', an[i]).removeClass('disabled');
+	                }
+	                
+	                $('.text-redirect', an[i]).val(oPaging.iPage + 1);
+	                
+	                if(oPaging.iTotalPages === 0){
+	                	$('.btn-paging-jump', an[i]).prop('disabled', true);
+	                } else {
+	                	$('.btn-paging-jump', an[i]).prop('disabled', false);
+	                }
+
+	                if (oPaging.iPage === oPaging.iTotalPages - 1 || oPaging.iTotalPages === 0) {
+	                    $('li.next', an[i]).addClass('disabled');
+	                } else {
+	                    $('li.next', an[i]).removeClass('disabled');
+	                }
+	            }
+	        }
+	    }
+} );
+
+
+/*
+ * TableTools Bootstrap compatibility
+ * Required TableTools 2.1+
+ */
+if ($.fn.DataTable.TableTools) {
+    // Set the classes that TableTools uses to something suitable for Bootstrap
+    $.extend(true, $.fn.DataTable.TableTools.classes, {
+        "container": "DTTT btn-group",
+        "buttons": {
+            "normal": "btn btn-default",
+            "disabled": "disabled"
+        },
+        "collection": {
+            "container": "DTTT_dropdown dropdown-menu",
+            "buttons": {
+                "normal": "",
+                "disabled": "disabled"
+            }
+        },
+        "print": {
+            "info": "DTTT_Print_Info"  
+        },
+        "select": {
+            "row": "active"
+        }
+    });
+
+    // Have the collection use a bootstrap compatible dropdown
+    $.extend(true, $.fn.DataTable.TableTools.DEFAULTS.oTags, {
+        "collection": {
+            "container": "ul",
+            "button": "li",
+            "liner": "a"
+        }
+    });
+}

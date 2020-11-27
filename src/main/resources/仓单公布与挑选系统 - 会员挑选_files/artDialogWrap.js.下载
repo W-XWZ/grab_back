@@ -1,0 +1,279 @@
+/**
+ * 基于artDialog的扩展
+ * @author mdc
+ */
+
+ /**
+  * 基于右下角提示信息 基于artdialog
+  */
+ artDialog.notice = function (options) {
+	    var opt = options || {},
+	        api, aConfig, hide, wrap, top,
+	        duration = 800;
+	        
+	    var config = {
+	      	//id: 'Notice',
+	        left: '100%',
+	        top: '100%',
+	        fixed: true,
+	        drag: false,
+	        resize: false,
+	        follow: null,
+	        lock: false,
+	        init: function(here){
+	            api = this;
+	            aConfig = api.config;
+	            wrap = api.DOM.wrap;
+	            top = parseInt(wrap[0].style.top);
+	            hide = top + wrap[0].offsetHeight;
+	            
+	            wrap.css('top', hide + 'px')
+	                .animate({top: top + 'px'}, duration, function () {
+	                    opt.init && opt.init.call(api, here);
+	                });
+	        },
+	        close: function(here){
+	            wrap.animate({top: hide + 'px'}, duration, function () {
+	                opt.close && opt.close.call(this, here);
+	                aConfig.close = $.noop;
+	                api.close();
+	            });
+	            
+	            return false;
+	        }
+	    };	
+	    
+	    for (var i in opt) {
+	        if (config[i] === undefined) config[i] = opt[i];
+	    };
+	    
+	    return artDialog(config);
+	};
+
+/**
+ * 右下角提示信息调用
+ * @param msg 提示信息
+ * @returns
+ */
+ function $notice(msg, close){
+	return  art.dialog.notice({
+		    title: '提示',
+		    width: 200,// 必须指定一个像素宽度值或者百分比，否则浏览器窗口改变可能导致artDialog收缩
+		    content: msg,
+		    icon: 'success',
+		    close:close,
+		    time:3});
+ }
+ 
+ /**
+  * 消息管理-右下角提示信息调用
+  * @param msg 提示信息
+  * @returns
+  */
+  function $noticeMessage(msg, url){
+ 	return  art.dialog.notice({
+ 		    title: '提示',
+ 		    width: 300,// 必须指定一个像素宽度值或者百分比，否则浏览器窗口改变可能导致artDialog收缩
+ 		    content: msg,
+ 		    icon: 'success',
+ 		    close:false,
+ 		    ok: function(){
+ 		    	$("#sys-message").html(0);
+ 		    	window.open(url);
+ 		    },
+ 		    okVal: '前往查看',
+ 		    time:5});
+  }
+ 
+ /**
+  * 宽展方法-等待框，不会自动关闭,需要调用close方法
+  * @param content 提示内容
+  */
+ function $waiting(content, callback){
+ 	return artDialog({
+        //id: 'Tips',
+        title: false,
+        cancel: false,
+        fixed: true,
+        icon:"loading",
+        esc:false,
+        lock: true
+    })
+    .content('<div style="padding: 0 2em;">' + content + '</div>');
+ }
+
+/**
+ * 提示信息
+ * @param	{String}	消息内容
+ * @param	{Function}	回调函数
+ */
+artDialog.messageBox = function (content, icon, callback) {
+    return artDialog({
+    	title: '提示',
+        icon: icon,
+        fixed: true,
+        lock: true,
+        content: content,
+        ok: true,
+        close: callback || $.noop
+    });
+};
+
+/**
+ * 确认
+ * @param	{String}	标题
+ * @param	{String}	消息内容
+ * @param	{Function}	确定按钮回调函数
+ * @param	{Function}	取消按钮回调函数
+ */
+artDialog.confirm = function (title, content, yes, no) {
+    return artDialog({
+        //id: 'Confirm',
+        icon: 'question',
+        title: title || '确认',
+        fixed: true,
+        lock: true,
+        //opacity: .1,
+        content: content,
+        ok: function (here) {
+            return yes.call(this, here);
+        },
+        cancel: function (here) {
+            return no && no.call(this, here);
+        }
+    });
+};
+
+
+/**
+ * 类似于window.alert
+ * @param msg 消息
+ * @param callback 回调函数
+ */
+ function $alert(msg, callback) {
+	return art.dialog.messageBox(msg, 'warning', callback);
+	
+}
+
+/**
+ * 类似于window.confirm
+ * @param msg 消息
+ * @param yes 确认的回调函数
+ * @param no 取消的回调函数
+ */
+function $confirm(msg, yes, no) {
+	return art.dialog.confirm(null, msg, yes, no);
+}
+
+/**
+ * 成功提示信息
+ * @param msg 消息
+ * @param callback 回调函数
+ */
+function $success(msg, yes) {
+	return art.dialog.messageBox(msg, 'success', yes);
+}
+
+/**
+ * 错误提示信息
+ * @param msg 消息
+ * @param callback 回调函数
+ */
+function $error(msg, yes) {
+	return art.dialog.messageBox(msg, 'error', yes);
+}
+
+/**
+ * 短暂提示
+ * @param	{String}	提示内容
+ * @param	{Number}	显示时间 (默认1.5秒)
+ */
+artDialog.tips = function (options) {
+	var config = $.extend({
+        title: false,
+        cancel: false,
+        fixed: true,
+        lock: true
+    }, options);
+	
+    var tip =  artDialog(config);
+    
+    if(config.time) tip.time(config.time);
+    return tip
+};
+
+/**
+  短暂提示
+  */
+function $tips(msg, time) {
+	return art.dialog.tips({content:msg, time:time});
+}
+
+/**
+ * @param	{String msg}	提示内容
+ * @param	{String icon}	提示图标 (成功success/失败error)
+ * @param	{Number time}	显示时间 (默认1.5秒)
+*/
+function $shortTips(msg, icon, time) {
+	var content = '<td class="aui_main"><div class="aui_iconBg prompt_' + icon + '"></div><div class="aui_content">' + msg + '</div></td>';
+	if (!time) { time = 1.5; }//默认1.5秒
+	return art.dialog.tips({content: content, time: time, lock: false});
+}
+
+/**
+ * 打开对话框 
+ * @param options
+ * @returns
+ */
+function openDialog(options){
+	
+	var defaults = {
+		//id:'simple-dialog-id',
+		title:"弹出窗口",
+		fixed:true,
+		max: false,
+	    min: false,
+	    lock: true,
+	    resize:false,
+	    cache:false,
+	    esc:false,
+	    okVal:'保存',
+	    dblclick:false, //双击不关闭对话框
+		data:{}
+	};
+	
+	var options = $.extend(defaults, options);
+	
+	if(options.url) { //使用扩展 基于iframe
+		return art.dialog.open(options.url, options);
+	}
+
+	//支持模版引擎
+	if(options.tpl && window.template) {
+		options.content = window.template(options.tpl, options.tplData|| {});
+		return art.dialog(options);
+	}
+	
+	var response = '';
+	if(options.ajaxUrl) { //实际还是基于content   data为ajax请求的参数
+		$.ajax({
+			url:options.ajaxUrl,
+			type:options.ajaxType || 'get',
+			async:false,
+			data:options.data,
+			success:function(res){
+				options.content = res;
+				response = res;
+			},
+			error:function(){
+				$alert("请求url异常!");
+			}
+		});	
+	}
+	
+	 var dialog = art.dialog(options);
+	 if(options.ajaxSuccess){
+			options.ajaxSuccess.call(this, response);
+		}
+	 return dialog;
+}

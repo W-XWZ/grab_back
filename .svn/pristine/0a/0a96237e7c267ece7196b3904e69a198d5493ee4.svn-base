@@ -1,0 +1,12 @@
+spring:
+ thymeleaf:
+   cache: false
+   prefix: classpath:/templates/
+   suffix: .html
+   encoding: UTF-8
+   mode: HTML5
+
+server:
+  port: 8081
+  servlet:
+    context-path: /grab_backend

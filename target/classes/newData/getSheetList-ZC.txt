@@ -1,0 +1,60 @@
+{
+    "code":200,
+    "message":"OK",
+    "result":{
+        "sumSheetQty":1,
+        "page":{
+            "list":[
+                {
+                    "spcId":"CCB200309000001",
+                    "valuationPoint":"0286",
+                    "whId":null,
+                    "makeDate":"2019",
+                    "netCalorific":5400,
+                    "totalSulfur":0.6,
+                    "placeName":"中国山西省",
+                    "coleType":"配煤（产地：山西、陕西、澳洲）",
+                    
+                    "settleReqId":29795,
+                    "firmId":"0262",
+                    "customerId":"35686491",
+                    "balQty":1,
+                    "MYROWNUM":1
+                },
+                {
+                    "spcId":"CCB200309000002",
+                    "valuationPoint":"0286",
+                    "whId":null,
+                    "makeDate":"2019",
+                    "netCalorific":5400,
+                    "totalSulfur":0.6,
+                    "placeName":"中国山西省",
+                    "coleType":"配煤（产地：山西、陕西、澳洲）2",
+                    
+                    "settleReqId":29796,
+                    "firmId":"0262",
+                    "customerId":"35686491",
+                    "balQty":1,
+                    "MYROWNUM":1
+                },
+                {
+                    "spcId":"CCB200309000003",
+                    "valuationPoint":"0286",
+                    "whId":null,
+                    "makeDate":"2019",
+                    "netCalorific":5400,
+                    "totalSulfur":0.6,
+                    "placeName":"中国山西省",
+                    "coleType":"配煤（产地：山西、陕西、澳洲）3",
+                    
+                    "settleReqId":29797,
+                    "firmId":"0262",
+                    "customerId":"35686491",
+                    "balQty":1,
+                    "MYROWNUM":1
+                }
+            ],
+            "totalRow":1
+        }
+    }
+}

@@ -1,0 +1,1092 @@
+/**
+ * 仓单挑选模块JS文件
+ */
+
+(function(root) {
+	
+	//全局变量，保存专场轮播图点击的专场id
+	var roundNo = 0; 
+	//全局变量，保存距离当天分配结束时间的秒数
+	var secondSum = 0; 
+	
+	// 临时保存专场信息对象
+    var fnRound;
+    var rotateMap = {};
+
+    var roundList = [];//全局变量，保存专场列表
+	var nowTime = 0;//全局变量，保存当前时间
+	var dataTables;
+	var valuationPoint; //根据品种获取的计价点列表
+	
+	
+
+	// 仓单挑选处理工具集合
+	var Selection = window.Selection = {
+			// 表格对象
+			dataTable: null,
+			// 动态表单form对象
+			formConf: null,
+			// 品种是否可以挑选,默认false
+			// 仓单因子,默认0
+			sheetSize: 0,
+			// 应挑选与已挑选量
+			pickCounter: null,
+			// 表格动态属性列
+			searchCondition: [],
+			// 挑选仓单表格所有数据
+			sheetList: [],
+			// 勾选仓单合计数量（张）,默认0
+			totalCount: 0,
+			// 勾选仓单合计数量（手）,默认0
+			totalHands: 0,
+			
+			/**
+			 * 初始化专场轮播图
+			 */
+			initRoundInfo: function(){
+				App.post("/member/option/getRoundList", function(data){
+					// 获得后台系统当前时间
+					nowTime = data.now;
+					// 前台初始化定时器：同步后台当前时间,每一秒增加一秒
+					Selection.subscribeServerTimer();
+					
+					if (data.roundList && data.roundList.length <= 0) {
+						$alert("未查询到专场信息");
+						return false;
+					}
+					
+					// 轮播专场列表信息
+					var list = data.roundList;
+					// 轮播图两端分别增加两个空专场
+					list.splice(0, 0, {"type": true}, {"type": true});
+					Array.prototype.push.call(list, {"type": true}, {"type": true});
+					
+					var roundEntity;				// 轮播专场对象
+					var flag = true;				// 获得专场默认选择标识
+					var roundEntityInfo = list[2];	// 获得默认点击选中专场信息(渲染倒计时使用),默认第3个,即第一个专场(前两个是空专场)
+					var indexFlag = 2;				// 标记专场默认点击选中索引,默认2,即第一个专场(前两个是空专场)
+					
+					// 遍历专场列表信息,增加轮播图状态
+					for (var i = 0; i < list.length; i++) {
+						roundEntity = list[i];
+						if (roundEntity && roundEntity.pickStartTime && roundEntity.pickEndTime) {
+							roundEntity["checked"] = false;	// 默认所有专场不选中
+							
+							if (i === 2) roundEntity["checked"] = true;// 默认第一个专场(除了两端的空专场)选中
+							
+							// 获得最近时间（正在进行中）的专场,标记选中
+							if (flag && i > 1 && nowTime >= roundEntity.pickStartTime && nowTime < roundEntity.pickEndTime) {
+								list[2]["checked"] = false;		// 取消默认标记点击的li
+								roundEntity["checked"] = true;	// 标记点击的li
+								// 渲染倒计时使用
+								roundEntityInfo = list[i];
+								indexFlag = i;
+								flag = false;
+							}
+							
+							roundEntity["text"] = "正在进行";
+							if (nowTime >= roundEntity.pickEndTime) {
+								roundEntity["text"] = "已结束";
+							} else if (nowTime < roundEntity.pickStartTime) {
+								roundEntity["text"] = new Date(roundEntity.pickStartTime).format("hh:mm") + "-" + new Date(roundEntity.pickEndTime).format("hh:mm");
+							}
+						}
+					}
+					// 为全局变量roundList赋值
+					roundList = list;
+					// 渲染页面
+					var tabHtml = template("round-chart-tpl", {list: roundList, idx: indexFlag});
+					$("#tab-list").html(tabHtml);
+					
+					if (roundEntityInfo && roundEntityInfo.roundNo) {
+						roundNo = roundEntityInfo.roundNo;
+						// 初始化倒计时
+						fnRound && clearInterval(rotateMap[fnRound.roundNo]);
+						
+						rotateMap[roundNo] = Selection.getDistinceToPubEndTime(roundEntityInfo);
+						// 初始化品种下拉框
+						Selection.initClassInfo(roundNo);
+					}
+					
+					// 绑定轮播图左右两端点击事件
+					Selection.clickPreNext(roundList);
+					// 绑定轮播图tab标签点击事件
+					Selection.changeTab();
+					// 处理交割类型筛选条件
+					Selection.dealSettleType();
+				});
+			},
+			
+			/**
+			 * 根据专场,初始化品种下拉框
+			 * 这里下拉框：value:合约ID; text:品种信息
+			 * @param roundId 专场Id
+			 */
+			initClassInfo: function(roundId){
+				App.post("/member/option/getClassList", {roundId: roundId}, function(data){
+					// 渲染品种下拉框
+					$("#commodityId").empty();// 先清空
+					$.each(data, function(index, value){
+						$("#commodityId").append('<option value="' + value.commodityId + '" confVal="' + value.classId + '">' + value.className + '(' + value.classId + ')</option>');
+					});
+					
+					var classId = $('#commodityId option:selected').attr('confVal');
+					var commodityId = $('#commodityId').val();
+					if (classId && commodityId) {
+						// 初始化筛选条件
+						Selection.initFormCondition(classId, commodityId, roundId);
+					} else {
+						$alert("品种下拉框信息不存在，请重试！");
+						return false;
+					}
+				});
+				
+				$("#commodityId").unbind();// 先解绑
+				$("#commodityId").on("change", roundId, function(evt){
+					var classId = $('#commodityId option:selected').attr('confVal');
+					var commodityId = $('#commodityId').val();
+					if (classId && commodityId) {
+						// 初始化筛选条件
+						Selection.initFormCondition(classId, commodityId, evt.data);
+					} else {
+						$alert("品种下拉框信息不存在，请重试！");
+						return false;
+					}
+				});
+			},
+			
+			/**
+			 * 根据合约,初始化筛选条件
+			 * @param classId 品种Id
+			 * @param commodityId 合约Id
+			 * @param roundId 场次Id
+			 * @param isRerender 是否是重复渲染
+			 */
+			initFormCondition: function(classId, commodityId, roundId, isRerender){
+				return App.post("/member/option/getFormCondition", {classId: classId, commodityId: commodityId}, function(data){
+					// 动态属性数据
+					var formCondition = data.formCondition;
+					// 动态属性表头数据
+					Selection.searchCondition = data.searchCondition;
+
+					if (!data.isViewPick) {
+						$('#query-option-result').hide();
+						$("#dynamic-form").empty();
+						$("#queryBtn").hide();
+						$('#query-empty').show();
+						$('#publish-form-foot').hide();
+						$('#show-settle-type').hide();
+						return false;
+					}
+					
+					$('#query-empty').hide();
+					$('#publish-form-foot').show();
+			
+					// 应挑选与已挑选量
+					Selection.pickCounter = data.pickCounter;
+					
+					if (!Selection.pickCounter || !Selection.pickCounter.shouldPick || Selection.pickCounter.shouldPick <= 0) {
+						$alert("你没有要挑选的仓单，不能查看仓单公布信息！");
+						return false;
+					}
+					
+					//剩余挑选量
+					Selection.restPick = data.pickCounter.shouldPick - data.pickCounter.picked;
+					
+					// 仓单因子
+					Selection.sheetSize = data.sheetSize;
+
+					var className = $('#commodityId option:selected').text();// 获得选择的品种name+ID
+					
+					// 基本信息
+					var shouldPick = 0;
+					var picked = 0;
+					var shouldHands = 0;
+					var pickedHands = 0;
+					if (Selection.pickCounter) {
+						shouldPick = Selection.pickCounter.shouldPick || 0;
+						picked = Selection.pickCounter.picked || 0;
+						
+						shouldHands = Selection.sheetSize * shouldPick;
+						pickedHands = Selection.sheetSize * picked;
+					}
+					
+					// 品种基本信息
+					var classInfo = {
+						className: className,
+						shouldHands: shouldHands,
+						pickedHands: pickedHands,
+						restHands: shouldHands - pickedHands,
+						shouldPick: shouldPick,
+						picked: picked,
+						restPick: shouldPick - picked
+					};
+					
+					// 渲染挑选仓单基本信息和
+					$('#option-list').html(template('option-list-tpl', {'classInfo': classInfo}));
+
+                    // 重新初始化各个局部变量：
+                    // 勾选仓单合计数量（张）,默认0
+                    Selection.totalCount = 0;
+                    // 合计
+                    carplank.spinning.$el.val(Selection.totalCount);
+                    $('#totalHands').html(Selection.totalCount);
+                    
+                    if(isRerender) return ;
+                    
+                    
+                    
+                    
+                    
+                    // 显示"查询"按钮
+					$("#queryBtn").show();
+					
+					dataTables && (dataTables.api().destroy(), dataTables = null);
+                    // 渲染筛选条件
+					$("#dynamic-form").empty();// 先清空
+					$('#query-option-result').show();
+                    
+					//是否包含生产年度
+					var hasMakeDate = false;
+					
+					for (var i = 0; i < formCondition.length; i++) {
+						if(formCondition[i].masterAttr === 'make_date' || formCondition[i].attrName === 'make_date'){
+							hasMakeDate = true;
+							break;
+						}
+					}
+					
+					//可以先做异步请求,然后在动态条件渲染完成后再渲染生产年度, 这个过程可能会导致请求完成后动态属性没渲染完成的情况,所以先做个检查
+					hasMakeDate && $.post(basePath + '/member/option/getMakeDate', {classId:classId, roundId:roundId}, function(makeDates){
+						if(!makeDates.length) return ;
+
+						var fn = function(){
+							var makeDate = $('[name=make_date]');
+							if(!makeDate.length) return setTimeout(fn, 50);
+							
+							var opts = '';
+							for (var i = 0; i < makeDates.length; i++) {
+								opts += '<option value="' + makeDates[i] + '">' + makeDates[i] + '</option>';
+							}
+							
+							makeDate.append(opts);
+						};
+						
+						fn();
+					}, 'json');
+					
+	
+					var orderOptions = '', orderItem, optionItem;
+					for (var i = 0; i < data.searchCondition.length; i++) {
+						orderItem = data.searchCondition[i];
+						if(orderItem.dataType == 'binary') continue;
+						
+						optionItem = {
+							attrName:orderItem.attrName,
+							masterAttr:orderItem.masterAttr,
+							dataType:orderItem.dataType
+						};
+						
+						orderOptions += '<option value="' + App.escapeHtml(JSON.stringify(optionItem)) + '">' +orderItem.attrAlias + '</option>';
+					}
+					$('#orderBy option:gt(0)').remove();
+					$('#orderBy').append(orderOptions);
+					
+					Selection.formConf = $('#dynamic-form').FormConf({list: formCondition, size: 2});
+					
+					valuationPoint = {};
+					var selectValuationPoint = $('select[name="valuation_point"]');
+    				if (selectValuationPoint.length) {
+    					selectValuationPoint.html('<option value="">请选择</option>');
+    					
+    					var opts = '';
+        				$.each(data.valuationPoint, function(index, item){
+        					opts += '<option value="' + item.id + '">' + item.name + '</option>';
+        				});
+        				selectValuationPoint.append(opts);
+					}
+    				
+    				$.each(data.valuationPoint, function(index, item){
+    					valuationPoint[item.id] = item.name;
+    				});
+					
+					// 遍历动态属性筛选条件数据，判断是否包含"交割类型"属性
+					for (var i = 0; i < formCondition.length; i++) {
+						if(formCondition[i].masterAttr === 'settle_type' || formCondition[i].attrName === 'settle_type'){
+							// 获得交割类型父元素control-group,并隐藏
+							var controlGroup = $('select[name=settle_type]').parents('.control-group')[0];
+							controlGroup && $(controlGroup) && $(controlGroup).hide();
+							
+							$('#show-settle-type').show();
+							if (!$('#settle-type-all').hasClass('active')) {
+								var type = $('input[name=settleType]').val();
+								$('#settle-type-' + type).removeClass('active');
+								$('#settle-type-all').addClass('active');
+								$('select[name=settle_type]').val('').trigger('change');
+								$('input[name=settleType]').val('');
+							};
+							break;
+						}
+					}
+					
+					/*********************************自动回车************************************/
+				    $('#dynamic-form input').keypress(function (e) {
+				        if (e.which == 13) {
+				        	$('#queryBtn').click(); //刷新表格
+				            return false;
+				        }
+				    });
+					
+					$('#option-box').html(template('option-box-tpl', {'theadList': Selection.searchCondition}));
+
+                    var columns = [{data:'settleReqId', render:function (settleReqId, type, row, index) {
+                    	return '<input id="' + settleReqId + '" type="checkbox" value="1" index="' + index.row + '" class="checkboxes">';
+                    }}];
+
+                    var interceptAttr = {
+                    		//处理计价点
+                    		valuation_point: function (data, meta, row){
+                                 return valuationPoint[data] || '--';
+                            }
+                    };
+                   
+                    
+                    var item;
+                    for(var i=0; i<data.searchCondition.length; i++) {
+                        item = data.searchCondition[i];
+
+                        //主表
+                        if(item.masterAttr){
+                        	
+                        	var propName = convertToPropertyName(item.masterAttr);
+                        	
+                            if(item.dataType == 'binary'){
+                                columns.push({ data:propName, className:'vtip', render:function(data, meta, row){
+                                    return (data? ('<a href="' + basePath + '/member/publish/download?attrValId='+ data +'">下载</a>') :'--')
+                                }});
+                            } else if(/^dic/.test(item.dataSrc)){
+                                columns.push({ data:propName, render:
+                                    (function(code) {
+                                        return function(data) {
+                                            return data ? (getDicJson(code)[data]||{}).name || '--': '--';
+                                        }
+                                    })(item.dataSrc)
+                                });
+                            } else if(interceptAttr[item.masterAttr]) { //特殊处理的属性
+                            	columns.push({data:propName, render:interceptAttr[item.masterAttr]});
+                            	
+                            } else {
+                                columns.push({ data:propName, render:function(data){
+                                    return  $.trim(data) ? App.escapeHtml(data) : '--';
+                                }});
+                            }
+                            continue;
+                        }
+
+                        if(item.dataType == 'binary'){
+                            columns.push({ data:'formConfs', className:'vtip', render:(function(attrName){
+                                return function(formConfs, meta, row){
+                                	if(!formConfs) return '';
+                                    for(var j=0; j<formConfs.length; j++) {
+                                        if(formConfs[j].attrName == attrName){
+                                            return (formConfs[j].attrValue? ('<div class="text-nowrap"><a href="' + basePath + '/member/publish/download?attrValId='+ formConfs[j].attrValue +'">' + App.escapeHtml(formConfs[j].binaryTitle || '下载')+ '</a></div>') :'--')
+                                        }
+                                    }
+                                }
+                            })(item.attrName)
+                            });
+                        } else {
+
+                            columns.push({ data:'formConfs', render: (function(attrName){
+                                return function(formConfs, meta, row){
+                                	if(!formConfs) return '';
+                                    for(var j=0; j<formConfs.length; j++) {
+                                        if(formConfs[j].attrName == attrName){
+                                        	if(!formConfs[j].attrValue){
+                                        		return '--';
+                                        	}
+                                        	
+                                        	if (/^dic:/.test(formConfs[j].dataSrc)) {
+												return (getDicJson(formConfs[j].dataSrc)[formConfs[j].attrValue]||{}).name || '--';
+											}
+                                        	
+                                        	if(interceptAttr[attrName]) { //特殊处理的属性
+                                        		return interceptAttr[attrName].call(this, formConfs[j].attrValue, meta, row);
+                                        	}
+                                        	
+                                        	return App.escapeHtml(formConfs[j].attrValue);
+                                        }
+                                    }
+                                }
+                            })(item.attrName)
+                            });
+                        }
+                    }
+
+                    columns.push({data:'qty'});
+                    columns.push({data:'settleReqId', render:function(settleReqId, meta, row){
+                    	return template('up-down-tpl', {'id': settleReqId, 'qty': row.qty, maxqty:row.qty}) + '<span style="margin-left: 10px;">张</span><span class="hand-number">(<span id="hand' + settleReqId + '" style="line-height: 22px;">' + (Selection.sheetSize * row.qty) + '</span>手)</span>';
+                    }});
+
+                    dataTables = dataTablesWrap({
+                        render:'#option-table',
+                        url:basePath + '/member/option/getSheetList',
+                        slected:false,
+                        displayLength:200,
+                        dataSrc:function(json){
+                        	Selection.sheetList = json.data;
+                        	// 共查询到多少条数据显示渲染
+                			$('#totalQuery').html(json.extData || 0);
+                        	return json.data;
+                        },
+                        aLengthMenu:[10,20,50,100,200],
+                        ajaxData:function () {
+                            return {condition: JSON.stringify({
+                                attrValues: Selection.formConf.getData(),
+                                roundId: roundNo,
+                                commodityId: $('#commodityId').val()
+                            }),
+                            orderBy:$('#orderBy').val()}
+                        },
+                        lengthChange:true,
+                        columns:columns,
+                        onChangePage:function (table, data) {
+                        	
+                        	// 合计先置为0
+                        	Selection.totalCount = 0;
+    						
+    						var spinnerMax = 0;
+    						// 计算勾选合计
+                        	$('#option-table .checkboxes:checked').each(function () {
+        	                	var id = this.id;	// 获得行id
+    							var sp = $("#spinner" + id);
+    							spinnerMax += (sp.data('maxqty') - 0);
+    							Selection.totalCount += (sp.val() - 0);
+    							$("#spinner" + id).attr("status", 1);
+        	                });
+                        	
+                        	// 渲染合计
+                        	setSpinnerMax();
+                        	carplank.spinning.$el.val(Selection.totalCount);
+                            $('#totalHands').html(Selection.sheetSize * Selection.totalCount);
+                            
+                            // 渲染"立即挑选"按钮状态
+                            if (Selection.totalCount > 0) {
+                            	carplank.spinning.$el.prop('disabled', false);
+        						$("#optionBtn").prop("disabled", false);
+        					} else {
+        						carplank.spinning.$el.prop('disabled', true);
+        						$("#optionBtn").prop("disabled", true);
+        					}
+                        	
+                            if(data && data.length) {
+                                $("#publish-form-foot").show();
+                                // 增减数字组件渲染
+                                $(".spinner").each(function(){
+                                    var qty = $(this).data("maxqty");
+                                    $(this).spinner({step: 1, min:0, max: qty});
+                                });
+                                
+                                Selection.calculateTotal();
+                                
+                            } else {
+                                $("#publish-form-foot").hide();
+                            }
+                        }
+                    });
+				});
+			},
+
+			/**
+			 * 计算合计
+			 */
+			calculateTotal: function(){
+				// 数字改变
+				$(".spinner").spinner('changing', function (evt, newVal, oldVal) {
+                    var total = Selection.totalCount + (newVal - oldVal);
+                    
+                    if ($(this).attr("status") != 0) {
+                        if (!Selection.restPick || Selection.restPick < total ) {
+                            $alert("挑选数量不可大于待挑选数量");
+                            $(this).val(oldVal);
+                            return evt.preventDefault();
+                        }
+                        
+                        Selection.totalCount = total;
+                        // 合计
+                        
+                        carplank.spinning.$el.val(Selection.totalCount);
+                        $('#totalHands').html(Selection.totalCount * Selection.sheetSize);
+                    }
+
+                    // 改变手数
+                    $("#hand" + $(this).attr("reqId")).html(Selection.sheetSize * newVal);
+                    
+                    if (Selection.totalCount > 0) {
+	                	carplank.spinning.$el.prop('disabled', false);
+						$("#optionBtn").prop("disabled", false);
+					} else {
+						carplank.spinning.$el.prop('disabled', true);
+						$("#optionBtn").prop("disabled", true);
+					}
+                });
+
+				// (1)渲染勾选组件 - 全选
+				$('#option-table .group-checkable').change(function () {
+	                var set = $(this).attr("data-set");
+	                var checked = this.checked;
+	                
+	                if (checked) {
+	                	var count = Selection.totalCount;
+	                	Selection.totalCount = 0;
+	                	
+	                	$(set).each(function () {
+	                		var id = this.id;	// 获得行id
+							// 挑选张数
+							var pickSheet = $("#spinner" + id).val();
+	                		Selection.totalCount += parseInt(pickSheet);
+	                	});
+	                	
+	                	if (!Selection.restPick || Selection.restPick < Selection.totalCount ) {
+							$alert("挑选的仓单数量不能大于剩余挑选的仓单数量");
+							$(this).prop("checked", false);
+							Selection.totalCount = count;
+							//$.uniform.update('#option-table .group-checkable');
+							return false;
+						}
+					}
+	                
+	                Selection.totalCount = 0;
+	                
+	                $(set).each(function () {
+	                	var id = this.id;	// 获得行id
+				    	// 计算勾选
+						if (checked) {
+							// 挑选张数
+							var pickSheet = $("#spinner" + id).val();
+							// 挑选数量=仓单因子*挑选张数
+							var pickQty = Selection.sheetSize * pickSheet;
+							
+							Selection.totalCount += parseInt(pickSheet);
+							// 勾选
+							$(this).prop("checked", true);
+							$("#spinner" + id).attr("status", 1);
+	                    } else {
+	                    	$(this).prop("checked", false);
+	                    	$("#spinner" + id).attr("status", 0).val(function(){
+	                    		return $(this).data('maxqty');
+	                    	});
+	                    }
+	                });
+	                
+	                // 合计
+	                carplank.spinning.$el.val(Selection.totalCount);
+	                $('#totalHands').html(Selection.totalCount * Selection.sheetSize);
+	                
+	                if (Selection.totalCount > 0) {
+	                	carplank.spinning.$el.prop('disabled', false);
+						$("#optionBtn").prop("disabled", false);
+					} else {
+						carplank.spinning.$el.prop('disabled', true);
+						$("#optionBtn").prop("disabled", true);
+					}
+	                
+	               // $.uniform.update(set);
+	            });
+
+				// (2)渲染勾选组件 - 单选
+				$('#option-table .checkboxes').change(function(){
+					var id = this.id;	// 获得行id
+					var sp = $("#spinner" + id);
+					// 挑选张数
+					var pickSheet = parseInt(sp.val());
+
+			    	// 计算勾选
+					if (this.checked) {
+						var total = Selection.totalCount + pickSheet;
+						
+	                	if (!Selection.restPick || Selection.restPick < total ) {
+	                		if(Selection.restPick == Selection.totalCount) {
+                                $alert("挑选数量不可大于待挑选数量");
+                                $(this).prop("checked", false);
+                                return false;
+							}
+
+	                		pickSheet = pickSheet - (total - Selection.restPick);
+                            Selection.totalCount += pickSheet;
+                            sp.val(pickSheet);
+                            $("#hand" + id).html(Selection.sheetSize * pickSheet);
+						} else {
+                            Selection.totalCount += pickSheet;
+						}
+	                	
+	                	setSpinnerMax();
+                    	sp.attr("status", 1);
+                    } else {
+                    	Selection.totalCount -= pickSheet;
+                    	sp.val(function(){
+                    		return $(this).data('maxqty');
+						}).attr("status", 0);
+                    	
+                    	$("#hand" + id).html(Selection.sheetSize * sp.val());
+                    	setSpinnerMax();
+                    }
+
+			    	// 合计
+			    	carplank.spinning.$el.val(Selection.totalCount);
+			    	$('#totalHands').html(Selection.totalCount * Selection.sheetSize);
+			    	
+			    	if (Selection.totalCount > 0) {
+			    		carplank.spinning.$el.prop('disabled', false);
+						$("#optionBtn").prop("disabled", false);
+					} else {
+						carplank.spinning.$el.prop('disabled', true);
+						$("#optionBtn").prop("disabled", true);
+					}
+			    });
+			},
+
+			/**
+			 * 场次说明
+			 */
+			initRoundDesc: function(){
+				App.post("/member/option/getRound", function(data){
+					// 页面渲染
+					var roundListHtml = template('round-info-tpl');
+					$('#roundInfo').html(roundListHtml);
+					
+					var html = "";
+					$.each(data, function(index, value){
+						var fontColor = '#747474';
+						if (value.status == 2) {
+							fontColor = '#333333';
+						}
+						if (value.status == 3) {
+							fontColor = '#f66400';
+						}
+						html += '<tr style="color:'+ fontColor +'">'
+							+ '<td>' + value.className + value.classId + '</td>' 
+							+ '<td>' + new Date(value.pickStartTime).format("hh:mm") + '</td>' 
+							+ '<td>' + new Date(value.pickEndTime).format("hh:mm") + '</td></tr>';
+					});
+					$('#round-tbody').html(html);
+					
+					// 是否有数据判断
+					if (data && data.length > 0) {
+						$("#round-table-empty").hide();
+						$("#round-table-tip").show();
+					} else {
+						$("#round-table-empty").show();
+						$("#round-table-tip").hide();
+					}
+				});
+			},
+			
+			/**
+			 * 选中仓单
+			 */
+			initCheckSettle: function(){
+				App.post("/member/option/getPickedSheet", function(data){
+					// 页面渲染
+					var settleListHtml = template('settle-info-tpl', {'dataList': data});
+					$('#settleInfo').html(settleListHtml);
+					// 是否有数据判断
+					if (data && data.length > 0) {
+						$("#settle-table-empty").hide();
+						$("#settle-table-tip").show();
+					} else {
+						$("#settle-table-empty").show();
+						$("#settle-table-tip").hide();
+					}
+				});
+			},
+			
+			// 专场轮播图点击事件
+			clickPreNext: function(list){
+				// 绑定点击事件
+				$("#tab-prev").on('click', function(){
+					var idx = parseInt($(this).attr("index"));
+					var next = parseInt($("#tab-next").attr("index"));
+					var curActive = parseInt($("#round-active").val());
+					if (curActive > 2) {
+						$("#li" + next).hide();
+						$("#li" + (idx - 1)).show();
+						$("#li" + (curActive)).removeClass("active");
+						$("#li" + (curActive - 1)).addClass("active");
+						$("#li" + (curActive - 1)).click();
+						$("#round-active").val(curActive - 1);
+						$(this).attr("index", idx - 1);
+						$("#tab-next").attr("index", next - 1);
+					}
+				});
+				
+				$("#tab-next").on('click', function(){
+					var idx = parseInt($(this).attr("index"));
+					var pre = parseInt($("#tab-prev").attr("index"));
+					var curActive = parseInt($("#round-active").val());
+					if (curActive < (list.length - 3)) {
+						$("#li" + pre).hide();
+						$("#li" + (idx + 1)).show();
+						$("#li" + (curActive)).removeClass("active");
+						$("#li" + (curActive + 1)).addClass("active");
+						$("#li" + (curActive + 1)).click();
+						$("#round-active").val(curActive + 1);
+						$(this).attr("index", idx + 1);
+						$("#tab-prev").attr("index", pre + 1);
+					}
+				});
+			},
+			
+			/**
+			 * 核心 - 切换Tab页
+			 */
+			changeTab : function(){
+				$('#tab-list li.allowCheck').on('click', function(){
+					var roundId = $(this).attr("roundId");
+					var idx = parseInt($(this).attr("index"));
+					// 页面轮播图处理
+					var pre = parseInt($("#tab-prev").attr("index"));
+					var next = parseInt($("#tab-next").attr("index"));
+					var curActive = parseInt($("#round-active").val());
+					
+					if (idx < curActive) {
+						// 两边显示和隐藏
+						$("#li" + next).hide();
+						$("#li" + (pre - 1)).show();
+						if ((curActive - idx) > 1) {
+							$("#li" + (next - 1)).hide();
+							$("#li" + (pre - 2)).show();
+						}
+						// 选中改变
+						$("#li" + curActive).removeClass("active");
+						$("#li" + idx).addClass("active");
+						// 记录数改变
+						$("#round-active").val(idx);
+						$("#tab-prev").attr("index", pre - curActive + idx);
+						$("#tab-next").attr("index", next - curActive + idx);
+					} else if (idx > curActive) {
+						// 两边显示和隐藏
+						$("#li" + pre).hide();
+						$("#li" + (next + 1)).show();
+						if ((idx - curActive) > 1) {
+							$("#li" + (pre + 1)).hide();
+							$("#li" + (next + 2)).show();
+						}
+						// 选中改变
+						$("#li" + curActive).removeClass("active");
+						$("#li" + idx).addClass("active");
+						$("#round-active").val(idx);
+						// 记录数改变
+						$("#tab-prev").attr("index", pre + idx - curActive);
+						$("#tab-next").attr("index", next + idx - curActive);
+					} else {
+						return false;
+					}
+					
+					// 倒计时处理
+					var round = roundList[idx];
+					fnRound && clearInterval(rotateMap[fnRound.roundNo]);
+					rotateMap[round.roundNo] = Selection.getDistinceToPubEndTime(round);
+					
+					if (roundId) {
+						roundNo = roundId;
+						// 动态初始化品种下拉框
+						Selection.initClassInfo(roundId);
+					}
+				});
+			},
+			
+			// 订阅系统当前时间
+			subscribeServerTimer : function(){
+				// serverTimer 事件由app.js统一处理
+				$(window).on('serverTimer', function(evt, serverDate){
+					nowTime = serverDate.getTime();
+				})
+			},
+			
+			/**
+			 * 查询当前时间距离当天挑选开始或结束时间的秒数
+			 * @param value 专场信息对象
+			 * @return fn 	倒计时对象
+			 */
+			getDistinceToPubEndTime : function(value){
+				
+				if (!value.pickStartTime || !value.pickEndTime || !value.roundNo) {
+					$alert("当前专场挑选开始时间或结束时间不存在");
+					return false;
+				}
+				
+				var roundEntity, roundText;
+				// 遍历专场列表,更新所有专场状态
+				for (var i = 0; i < roundList.length; i++) {
+					roundEntity = roundList[i];
+					if (roundEntity && roundEntity.pickStartTime && roundEntity.pickEndTime) {
+						roundText = "正在进行";
+						if (nowTime >= roundEntity.pickEndTime) {
+							roundText = "已结束";
+						} else if (nowTime < roundEntity.pickStartTime) {
+							roundText = new Date(roundEntity.pickStartTime).format("hh:mm") + "-" + new Date(roundEntity.pickEndTime).format("hh:mm");
+						}
+						$("#roundStatus" + roundEntity.roundNo).html(roundText);
+					}
+				}
+				
+				var seconds = 0;
+				if (nowTime >= value.pickEndTime) {
+					$(".rest-time").html("已结束");
+					$("#roundStatus" + value.roundNo).html("已结束");
+				} else if (nowTime < value.pickStartTime) {
+					seconds = (value.pickStartTime - nowTime) / 1000;
+					var hour = parseInt(seconds/3600);// 计算小时
+					
+					if (hour > 24) {
+						$(".rest-time").html("未开始");
+						$("#roundStatus" + value.roundNo).html("未开始");
+					} else {
+						$(".rest-time").html("距离本场开始");
+						var text = new Date(value.pickStartTime).format("hh:mm") + "-" + new Date(value.pickEndTime).format("hh:mm");
+						$("#roundStatus" + value.roundNo).html(text);
+					}
+					
+				} else {
+					$(".rest-time").html("距离本场结束");
+					seconds = (value.pickEndTime - nowTime) / 1000;
+					$("#roundStatus" + value.roundNo).html("正在进行");
+				}
+				
+				if (parseInt(seconds) <= 0 || parseInt(seconds/3600) > 24) {
+					var date = App.secondToDate(0);
+					var list = date.split("");
+					var html = template("count-down-tpl", {list: list});
+					$('.time-info').html(html);
+					return false;
+				}
+				
+				secondSum = parseInt(seconds);
+				
+				var initCountDown = function(){
+					
+					if (secondSum < 0) {
+						secondSum = 0;
+						fnRound && clearInterval(rotateMap[fnRound.roundNo]);
+						rotateMap[fnRound.roundNo] = Selection.getDistinceToPubEndTime(fnRound);
+					}
+					
+					var date = App.secondToDate(secondSum);
+					var list = date.split("");
+					var html = template("count-down-tpl", {list: list});
+					$('.time-info').html(html);
+					secondSum--;
+				}
+				
+				initCountDown();
+				
+				var fn = setInterval(initCountDown, 1000);
+				
+				fnRound = value;
+				
+				return fn;
+			},
+			
+			// 处理交割类型筛选条件
+			dealSettleType: function(){
+				$('#show-settle-type li').on('click', function(){
+					var settleType = $(this).data("value");
+					$('select[name=settle_type]').val(settleType).trigger('change');
+					$('input[name=settleType]').val(settleType);
+					// 相当于点击"查询"按钮
+					$('#queryBtn').click();
+				});
+			}
+	
+	}
+	
+	// 初始化页面
+	Selection.initRoundInfo();
+
+    $('#optionBtn').on('click', function(){
+
+        var checkedList = [];
+        var item;
+        // 获得勾选行
+        $('#option-table .checkboxes:checked').each(function() {
+            var pickSheet = $("#spinner" + this.id).val();// 获得挑选张数
+            if(pickSheet - 0 <= 0) return;
+            
+            var index = parseInt($(this).attr("index"));		// 获得行号-->列表数据索引
+            var entity = Selection.sheetList[index];
+            item = {
+                qty: pickSheet,
+                sFirmId:entity.firmId,
+                sCustomerId:entity.customerId,
+                settleReqId:entity.settleReqId,
+                whId:entity.whId
+             }
+            
+            checkedList.push(item);
+        });
+
+        if (checkedList.length <= 0) {
+            $alert('请选择仓单');
+            return false;
+        }
+
+        var classId = $('#commodityId option:selected').attr('confVal');// 获得品种ID
+        var commodityId = $("#commodityId").val();						// 获得合约号
+
+        openDialog({
+            title:'<img class="title-flag">&nbsp;挑选确认',
+            width:450,
+            tpl:'warehouse-option-tpl',
+            tplData:{warehouseInfo: {
+                classId : classId,
+                commodityId : commodityId,
+                secondTotalPiece: Selection.totalCount,
+                secondTotalHands: Selection.totalCount * Selection.sheetSize
+            }},
+            init:function(){
+
+            	var _this = this;
+                // 挑选"确定"按钮,绑定事件
+                $('#pickBtn').on('click', function(){
+
+                    App.post("/member/option/doPick", App.serialize({settlePicks: checkedList, commodityId:commodityId, classId:classId}), function(data){
+
+                        var successPiece = 0, failHtml = '', failPiece = 0;
+                        // 刷新页面
+                        var classId = $('#commodityId option:selected').attr('confVal');
+                        var commodityId = $('#commodityId').val();
+                        // 勾选仓单合计数量（张）,默认0
+                        Selection.totalCount = 0;
+                        $('#totalPiece, #totalHands').html(Selection.totalCount);
+                        
+                        // 初始化筛选条件
+                        Selection.initFormCondition(classId, commodityId, null, true).success(function(){
+                        	dataTables.api().draw();
+                        });
+                        
+                        Selection.initCheckSettle();
+                        _this.close();
+                        
+                        var getWhId = function(whId){
+                            return whId === null || whId === undefined || whId == ' '? '车船板' : whId;
+                        };
+                        
+                        if (data.successItems.length) {
+                            $.each(data.successItems, function(index, value){
+                                if(value.message) {
+                                    failPiece += (value.qty - value.realQty);
+                                    failHtml += '<br>仓库：' + getWhId(value.whId) + '，部分成功，成功 ' + value.realQty + ' 张， 失败 ' + (value.qty - value.realQty) + '，失败原因：' + value.message;
+                                }
+
+                                successPiece += value.realQty;
+                            });
+
+                            $.each(data.failItems, function(index, value){
+                                failHtml += "<br>仓库：" + getWhId(value.whId) + "，挑选失败，数量" + value.qty + "张，失败原因：" + value.message;
+                                failPiece += value.qty;
+                            });
+
+                            return failHtml? art.dialog.messageBox('<div style="max-height:450px;width: 500px;text-align: left;padding-left: 50px;overflow:auto;">仓单挑选部分成功，成功 ' + successPiece + ' 张，失败 ' + failPiece + ' 张' + failHtml + '</div>')
+                                : $success("仓单挑选成功，成功 " + successPiece +" 张");
+                        }
+
+                        $.each(data.failItems, function(index, value){
+                            failHtml += "<br>仓库：" + getWhId(value.whId) + "，挑选失败，数量" + value.qty + "张，失败原因：" + value.message;
+                            failPiece += value.qty;
+                        });
+
+                        art.dialog.messageBox('<div style="max-height:450px;width: 500px;text-align: left;padding-left: 50px;overflow:auto;">仓单挑选失败，失败 ' + failPiece + ' 张' + failHtml + '</div>');
+                       
+                    });
+                });
+
+                // 点击"取消"按钮,关闭弹出框
+                $('#resetBtn').on('click', function(){
+                    _this.close();
+                });
+            }
+        });
+    });
+	
+	// 初始化场次说明和选中仓单
+	Selection.initRoundDesc();
+    Selection.initCheckSettle();
+    
+    //判断
+    var carplank = $('#spinner-carplank').spinner({min:0, changing:function (evt, newVal, oldVal) {
+    	if(!newVal){
+    		Selection.totalCount = 0;
+    		$('#totalHands').html(0);
+    		$('#optionBtn').prop('disabled', true);
+    		return $('#option-table .checkboxes:checked').each(function(){
+    			var sp = $("#spinner" + this.id).val(0); 
+    			 // 改变手数
+                $("#hand" + sp.attr("reqId")).html('0');
+        	});
+    	}
+    	
+    	Selection.totalCount = newVal;
+		$('#totalHands').html(newVal * Selection.sheetSize);
+    	$('#optionBtn').prop('disabled', false);
+    	
+    	var hasCount = true;
+    	$('#option-table .checkboxes:checked').each(function(){
+    		var sp = $("#spinner" + this.id);
+    		var spHand = $("#hand" + sp.attr("reqId"));
+    		
+    		if(!hasCount) {
+    			spHand.html('0');
+    			return sp.val(0);
+    		}
+    		
+    		var maxqty = sp.data('maxqty');
+    		if(newVal - maxqty >= 0){
+    			newVal -= maxqty;
+    			spHand.html(Selection.sheetSize * maxqty);
+    			return sp.val(maxqty);
+    		}
+    		
+    		hasCount = false;
+    		if(newVal > 0){
+    			spHand.html(Selection.sheetSize * newVal);
+    			return sp.val(newVal);
+    		}
+    		
+    		spHand.html('0');
+    		sp.val(0);
+    	});
+    }});
+    carplank = carplank.data('spinner');
+    
+    //设置选中仓单共计的最大值
+    function setSpinnerMax(){
+		var max = 0;
+    	$('#option-table .checkboxes:checked').each(function(){
+    		max += ($("#spinner" + this.id).data('maxqty') - 0); 
+    	});
+    	
+    	carplank.spinning.max = Math.min(max, Selection.restPick);
+    	carplank.spinning.options.max = carplank.spinning.max;
+    }
+    
+	
+	// 点击"查询"按钮,显示相应待挑选仓单列表
+	$('#queryBtn').on('click', function(){
+        // form表单验证
+        var form = $('#option-frm');
+        if(!form.isValid()) return false;
+
+        dataTables && dataTables.api().draw();
+	});
+	
+	//排序选择后自动排序
+	$('#orderBy').on('change', function(){
+		$('#queryBtn').click();
+    });
+	
+	// 返回顶部
+	$(".return-top-btn").on('click', function(){
+		$(".page-main-content").scrollTop(0);
+	});
+})(window);

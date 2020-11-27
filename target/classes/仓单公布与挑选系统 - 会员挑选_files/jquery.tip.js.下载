@@ -1,0 +1,106 @@
++function ($) {
+	'use strict';
+
+	  // TOOLTIP PUBLIC CLASS DEFINITION
+	  // ===============================
+
+	  var Tip = {};
+
+	  Tip.VERSION  = '1.0.0'
+		  
+	  function getPadding(element, type) {
+	  		if(type == 'v') {
+	  			var padd_top_str = element.css('padding-top');//获取padding-top的字符形式:带px
+	  			var padd_bottom_str = element.css('padding-bottom');//获取padding-bottom的字符形式:带px
+	  			return parseInt(padd_top_str.substring(0, padd_top_str.indexOf('px'))) + parseInt(padd_bottom_str.substring(0, padd_bottom_str.indexOf('px')));
+	  			
+	  		}
+	  		
+	  		if(type == 'h') {
+	  			var padd_left_str = element.css('padding-left');
+	  			var padd_right_str = element.css('padding-right');
+	  			return parseInt(padd_left_str.substring(0, padd_left_str.indexOf('px'))) + parseInt(padd_right_str.substring(0, padd_right_str.indexOf('px')));
+	  		}
+	  }
+	  
+	  Tip.init = function (element) {
+		  var tip = Tip.getVtip();
+		  Tip.$element = tip.vtip;
+		  Tip.$arrow = tip.arrow;
+	  }
+	  
+	  Tip.getVtip = function(message){
+		  var vtip = $('#vtip');
+		  if(vtip.length) {
+			  vtip.html('<span id="vtipArrow" class="vtipArrowUp"></span>' + message);
+			  return vtip;
+		  }
+		  
+		  $('body').append('<div id="vtip" style="display:none;z-index:20000"><span id="vtipArrow" class="vtipArrowUp"></span>' + (message || '') + '</div>');
+		  return {vtip:$('#vtip'), arrow:$('#vtipArrow')};
+	  };
+
+	  Tip.show = function (element) {
+		  	if(!Tip.$element) return ;
+		  	var text = element.attr('tip')||element.text();
+		  	if (!text) return ;
+		  	
+		  	Tip.getVtip(text);
+			//计算弹出框的宽度和高度，计算坐标加上宽高是否超出窗口的宽高
+			var tip_width = Tip.$element.width() + getPadding(Tip.$element, 'h');
+			var left = element.offset().left;
+			//设置tip的宽度
+			var objWidth = element.width() + getPadding(element, 'h');//获取目标对象的宽度
+			var windowWidth = $(window).width();//窗口宽度
+			var windowWidthTemp = windowWidth - 50;
+			
+			if(objWidth > windowWidthTemp) {//如果宽度超过了窗口宽度
+				objWidth = windowWidthTemp;
+			}
+			
+			if(tip_width > objWidth) {
+				var tempWidth = objWidth > 300 ? objWidth : 300;
+				tip_width = tip_width > 300 ? tempWidth : tip_width;
+				Tip.$element.width(tip_width - 20);
+			} else if(element.css('text-align') == 'center' || element.attr('align') == 'center'){
+				left = left + (objWidth - tip_width) / 2;//如果内容居中，提示居中
+			}
+			
+			//判断提示框是否超出了窗口
+			var tipRightX = left + tip_width + 40;//tip右边横坐标,偏移40像素
+			if(tipRightX > windowWidth) {//左移提示框
+				var overstep = tipRightX - windowWidth;
+				left = left - overstep;
+				Tip.$arrow.css('left', overstep + 'px');
+			}
+			
+			var objHeight = element.height() + getPadding(element, 'v');
+			var top = element.offset().top  + objHeight + 10;//左顶点y坐标是输入域的y坐标+输入域高+输入域的padding值
+			var tip_height = Tip.$element.height() + getPadding(Tip.$element, 'v');//计算tip高度
+			
+			if(top + tip_height + 10 > $(window).height()) {//计算是否需要竖直方向翻
+				top = top - tip_height - objHeight - 22;
+				Tip.$arrow.removeClass('vtipArrowUp');//修改箭头的样式，箭头向下
+				Tip.$arrow.addClass('vtipArrowDown');
+				Tip.$arrow.css('top', (tip_height - 1) + 'px');
+			}
+			
+			Tip.$element.css('top', top+'px').css('left', left+'px');
+			Tip.$element.show();
+	  };
+	  
+	  Tip.init();
+	  $.Tip = Tip;
+	  
+	  $('body').on('mouseenter', '[tip],.vtip', function(e) {
+			if($(this).attr('tip') || $(this).hasClass('vtip')) {//鼠标移到目标上显示提示信息
+				Tip.show($(this));
+			}
+		})
+		.on('mouseleave', '[tip],.vtip', function() {
+			if($(this).attr('tip') || $(this).hasClass('vtip')){//鼠标移走不显示提示信息s
+				Tip.$element && Tip.$element.hide();
+			}
+		});
+	
+}(jQuery);

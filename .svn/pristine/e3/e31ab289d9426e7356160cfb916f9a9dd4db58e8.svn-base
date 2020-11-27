@@ -1,0 +1,62 @@
+Request:
+{
+    "pageIndex":1,
+    "pageSize":200,
+    "classId":"AP",
+    "commodityId":"AP905",
+    "settleType":"",
+    "roundId":"456",
+    "formDefine":{
+        "formDefineId":10032,
+        "formId":"selection_query_condition",
+        "formAttrDefines":[
+            {
+                "attrId":1673,
+                "formAttrDefineId":3035,
+                "name":"VALUATION_POINT",
+                "bizName":"valuationPoint",
+                "value":null
+            },
+            {
+                "attrId":2,
+                "formAttrDefineId":3036,
+                "name":"PLACE_NAME",
+                "bizName":"placeName",
+                "value":null
+            },
+            {
+                "attrId":1657,
+                "formAttrDefineId":3037,
+                "name":"ITEM_ID",
+                "bizName":"itemId",
+                "value":null
+            }
+        ]
+    }
+}
+
+Response:
+{
+    "code":200,
+    "message":"OK",
+    "result":{
+        "sumSheetQty":1,
+        "page":{
+            "list":[
+                {
+                    "spcId":"CCB190520000002",
+                    "whId":null,
+                    "valuationPoint":"0226",
+                    "itemId":"8015",
+                    "placeName":null,
+                    "settleReqId":12884,
+                    "firmId":"0039",
+                    "customerId":"35141513",
+                    "balQty":1,
+                    "MYROWNUM":1
+                }
+            ],
+            "totalRow":1
+        }
+    }
+}

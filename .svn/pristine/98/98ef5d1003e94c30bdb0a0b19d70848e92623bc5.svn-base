@@ -1,0 +1,25 @@
+
+{
+    "code":200,
+    "message":"OK",
+    "result":{
+        "sumSheetQty":1,
+        "page":{
+            "list":[
+                {
+                    "spcId":"CCB190520000002",
+                    "whId":0311,
+                    "valuationPoint":"0226",
+                    "itemId":"8015",
+                    "placeName":null,
+                    "settleReqId":12884,
+                    "firmId":"0039",
+                    "customerId":"35141513",
+                    "balQty":1,
+                    "MYROWNUM":1
+                }
+            ],
+            "totalRow":1
+        }
+    }
+}

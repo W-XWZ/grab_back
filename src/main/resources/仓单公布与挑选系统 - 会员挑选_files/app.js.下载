@@ -1,0 +1,740 @@
+/**
+Core script to handle the entire layout and base functions
+**/
+var App = function () {
+    //系统时间和服务器时间偏移量
+	var __SERVER_TIME_OFFSET__ = 0;
+	//获取服务器时间
+	window.getServerDate = function() {
+		return new Date(new Date().getTime() + __SERVER_TIME_OFFSET__);
+	};
+
+	//所有的ajax请求在sesstion超时的时候都自动跳转到登录页面
+    $.ajaxSetup({
+        global: false,
+        timeout:60000, //超时60s
+        complete: function (xhr, textStatus, errorThrown) {
+        	//alert(window.location.protocol);
+
+        	var winTop = art.dialog.top;
+            $(window).triggerHandler('oncomplete', [xhr, textStatus, errorThrown]);
+
+            if (xhr.statusText == 'timeout') return winTop.$alert('请求超时，请重试');
+            if (!xhr.status && xhr.statusText != 'abort') return winTop.$alert('网络错误，请重试');
+
+            if (xhr.getResponseHeader('sessionstatus') == 'timeout') {
+                return $alert('登录超时，请重新登录', function () {
+                    //  请求超时，跳转到证书登录界面  winTop.location.href = basePath + '/login.do';
+                	winTop.location.href = basePath + '/ukeylogin.do';
+                });
+            }
+            
+            if (xhr.getResponseHeader('kickstatus') == 'true') {
+            	return $alert('该账号已被其他用户登录', function () {
+            		//  请求超时，跳转到证书登录界面  winTop.location.href = basePath + '/login.do';
+            		winTop.location.href = basePath + '/ukeylogin.do';
+            	});
+            }
+
+            if (xhr.getResponseHeader('isException') == 'true' && xhr.responseText) {
+                var message = xhr.responseText;
+                try {
+                    message = $.parseJSON(message).message || '网络错误，请重试';
+                } catch (e) {
+                }
+
+                winTop.$alert(message);
+            }
+            
+            setTimeout(handleSidebarAndContentHeight, 100);
+        }
+    });
+    
+  //日期格式化函数
+    Date.prototype.format = function(format) {
+   	var o = {
+   		"M+" : this.getMonth() + 1, // month
+   		"d+" : this.getDate(), // day
+   		"h+" : this.getHours(), // hour
+   		"m+" : this.getMinutes(), // minute
+   		"s+" : this.getSeconds(), // second
+   		"q+" : Math.floor((this.getMonth() + 3) / 3), // quarter
+   		"S" : this.getMilliseconds(),
+   		"w" : this.getDay(),
+   		"W" : ['日', '一', '二', '三', '四', '五', '六'][this.getDay()]
+   	// millisecond
+   	}
+   	if (/(y+)/.test(format))
+   		format = format.replace(RegExp.$1, (this.getFullYear() + "")
+   				.substr(4 - RegExp.$1.length));
+   	for ( var k in o)
+   		if (new RegExp("(" + k + ")").test(format))
+   			format = format.replace(RegExp.$1, RegExp.$1.length == 1 ? o[k]
+   					: ("00" + o[k]).substr(("" + o[k]).length));
+   	return format;
+   };
+   
+   
+   var _noop = function(){};
+  (typeof window.console === 'undefined') && (window.console = { log:_noop, debug:_noop, error:_noop, warn:_noop, info:_noop});
+	
+    // IE mode
+    var isRTL = false;
+    var isIE8 = false;
+    var isIE9 = false;
+    var isIE10 = false;
+
+    var sidebarWidth = 225;
+    var sidebarCollapsedWidth = 35;
+
+    var responsiveHandlers = [];
+
+    var handleInit = function() {
+
+        if ($('body').css('direction') === 'rtl') {
+            isRTL = true;
+        }
+
+        isIE8 = !! navigator.userAgent.match(/MSIE 8.0/);
+        isIE9 = !! navigator.userAgent.match(/MSIE 9.0/);
+        isIE10 = !! navigator.userAgent.match(/MSIE 10/);
+        
+        if (isIE10) {
+            jQuery('html').addClass('ie10'); // detect IE10 version
+        }
+    };
+    
+    var getCookie = function(name){
+    	var list, reg = new RegExp('(^| )' + name + '=([^;]*(;|$))');
+    	if((list = document.cookie.match(reg))) {
+    		return unescape(list[2]);
+    	}
+    	return null;
+    };
+    
+    //设置Cookie,expire 单位:s
+    var setCookie = function(name, value, expire, path){
+    	expire = expire || (3 * 3600 * 24);
+    	var exp = new Date();
+    	exp.setTime(exp.getTime() + expire * 1000);
+    	
+    	document.cookie = name + '=' + escape(value) + '; expires' + exp.toGMTString() + ';path=' + (path || '/');
+    };
+    
+    var delCookie = function(name) {
+    	var v = getCookie(name);
+    	!v && setCookie(name, v, -10);
+    };
+    
+	var handleSidebarToggler = function () {
+        // handle sidebar show/hide
+        $('.sidebar-toggler').on('click', function (e) {            
+            var body = $('body');
+            var sidebar = $('.page-sidebar');
+
+            if ((body.hasClass("page-sidebar-hover-on") && body.hasClass('page-sidebar-fixed')) || sidebar.hasClass('page-sidebar-hovering')) {
+                body.removeClass('page-sidebar-hover-on');
+                sidebar.css('width', '').hide().show();
+                e.stopPropagation();
+                runResponsiveHandlers();
+            }
+            
+            $(".sidebar-search", sidebar).removeClass("open");
+            
+            delCookie('MENU_STATUS');
+            if (body.hasClass("page-sidebar-closed")) {
+                body.removeClass("page-sidebar-closed");
+                if (body.hasClass('page-sidebar-fixed')) {
+                    sidebar.css('width', '');
+                }
+                
+                setCookie('MENU_STATUS', 'open', 10000);
+                return;
+            } else {
+            	setCookie('MENU_STATUS', 'close', 10000);
+                body.addClass("page-sidebar-closed");
+            }	
+            runResponsiveHandlers();
+            
+        });
+
+        // handle the search bar close
+        $('.page-sidebar').on('click', '.sidebar-search .remove', function (e) {
+            e.preventDefault();
+            $('.sidebar-search').removeClass("open");
+        });
+
+        // handle the search query submit on enter press
+        $('.page-sidebar').on('keypress', '.sidebar-search input', function (e) {
+            if (e.which == 13) {
+                window.location.href = "extra_search.html";
+                return false; //<---- Add this line
+            }
+        });
+
+        // handle the search submit
+        $('.sidebar-search .submit').on('click', function (e) {
+            e.preventDefault();
+          
+                if ($('body').hasClass("page-sidebar-closed")) {
+                    if ($('.sidebar-search').hasClass('open') == false) {
+                        if ($('.page-sidebar-fixed').size() === 1) {
+                            $('.page-sidebar .sidebar-toggler').click(); //trigger sidebar toggle button
+                        }
+                        $('.sidebar-search').addClass("open");
+                    } else {
+                        window.location.href = "extra_search.html";
+                    }
+                } else {
+                    window.location.href = "extra_search.html";
+                }
+        });
+    }
+
+    var handleSidebarState = function () {
+        // remove sidebar toggler if window width smaller than 900(for table and phone mode)
+        if ($(window).width() < 700) {
+            $('body').addClass("page-sidebar-closed");
+        }
+    }
+    
+    var handleTabs = function () {
+
+        // function to fix left/right tab contents
+        var fixTabHeight = function(tab) {
+            $(tab).each(function() {
+                var content = $($($(this).attr("href")));
+                var tab = $(this).parent().parent();
+                if (tab.height() > content.height()) {
+                    content.css('min-height', tab.height());    
+                } 
+            });            
+        }
+
+        // fix tab content on tab shown
+        $('body').on('shown', '.nav.nav-tabs.tabs-left a[data-toggle="tab"], .nav.nav-tabs.tabs-right a[data-toggle="tab"]', function(){
+            fixTabHeight($(this)); 
+        });
+
+        $('body').on('shown', '.nav.nav-tabs', function(){
+            handleSidebarAndContentHeight();
+        });
+
+        //fix tab contents for left/right tabs
+        fixTabHeight('.nav.nav-tabs.tabs-left > li.active > a[data-toggle="tab"], .nav.nav-tabs.tabs-right > li.active > a[data-toggle="tab"]');
+
+        //activate tab if tab id provided in the URL
+        if(location.hash) {
+            var tabid = location.hash.substr(1);
+            $('a[href="#'+tabid+'"]').click();
+        }
+    }
+
+    var runResponsiveHandlers = function () {
+        // reinitialize other subscribed elements
+        for (var i=0; i<responsiveHandlers.length; i++) {
+            responsiveHandlers[i] && responsiveHandlers[i].call();
+        }
+    }
+
+    var handleResponsive = function () {
+        handleSidebarState();
+        handleSidebarAndContentHeight();
+        runResponsiveHandlers();
+    }
+
+    var handleResponsiveOnInit = function () {
+        handleSidebarState();
+        handleSidebarAndContentHeight();
+    }
+
+    var handleResponsiveOnResize = function () {
+        var resize;
+        if (isIE8) {
+            var currheight;
+            $(window).resize(function() {
+                if(currheight == document.documentElement.clientHeight) {
+                    return; //quite event since only body resized not window.
+                }                
+                if (resize) {
+                    clearTimeout(resize);
+                }   
+                resize = setTimeout(function() {
+                    handleResponsive();
+                }, 50); // wait 50ms until window resize finishes.                
+                currheight = document.documentElement.clientHeight; // store last body client height
+            });
+        } else {
+            $(window).resize(function() {
+                if (resize) {
+                    clearTimeout(resize);
+                }   
+                resize = setTimeout(function() {
+                    handleResponsive();    
+                }, 50); // wait 50ms until window resize finishes.
+            });
+        }   
+    }
+
+    //* BEGIN:CORE HANDLERS *//
+    // this function handles responsive layout on screen size resize or mobile device rotate.
+  
+    var handleSidebarAndContentHeight = function () {
+    	var content = $('.page-container');
+    	var available_height = $(window).height();
+    	var sidebar = $('.page-sidebar-menu');
+    	
+    	var maxHeight = Math.max.apply(null, [available_height, content.height(), sidebar.height(), 700]);
+    	$('#page-sidebar').height(maxHeight);
+    	return ;
+    }
+
+    var handleSidebarMenu = function () {
+        jQuery('.page-sidebar').on('click', 'li > a', function (e) {
+                if ($(this).next().hasClass('sub-menu') == false) {
+                    if ($('.btn-navbar').hasClass('collapsed') == false) {
+                        $('.btn-navbar').click();
+                    }
+                    return;
+                }
+
+                var parent = $(this).parent().parent();
+
+                parent.children('li.open').children('a').children('.arrow').removeClass('open');
+                parent.children('li.open').children('.sub-menu').slideUp(200);
+                parent.children('li.open').removeClass('open');
+
+                var sub = jQuery(this).next();
+                if (sub.is(":visible")) {
+                    jQuery('.arrow', jQuery(this)).removeClass("open");
+                    jQuery(this).parent().removeClass("open");
+                    sub.slideUp(200, handleSidebarAndContentHeight);
+                } else {
+                    jQuery('.arrow', jQuery(this)).addClass("open");
+                    jQuery(this).parent().addClass("open");
+                    sub.slideDown(200, handleSidebarAndContentHeight);
+                }
+
+                e.preventDefault();
+            });
+    }
+	
+	var handleUniform = function () {
+        if (!jQuery().uniform) {
+            return;
+        }
+        var test = $("input[type=checkbox]:not(.toggle), input[type=radio]:not(.toggle, .star)");
+        if (test.size() > 0) {
+            test.each(function () {
+                    if ($(this).parents(".checker").size() == 0) {
+                        $(this).show();
+                        $(this).uniform();
+                    }
+                });
+        }
+    };
+
+
+    var handleMenu = function(){
+    	$('.right-memu, .nav-paths, .home-index').on('click', '.menu-link', function(){
+    		var link = $(this).data('link');
+    		if(!link) return ;
+    		
+    		location.href= basePath + (/^\//.test(link)? '' : '/') + link;
+    	});
+    };
+
+    var handleModifypwd = function(){
+        $('.modify-pwd').on('click', function(){
+            openDialog({
+                title:'<img class="title-flag">&nbsp;修改密码',
+                width:520,
+                height:200,
+                url:basePath + '/system/user/pwdIndex',
+                okVal:'修改',
+                ok:function(){
+                    var iframe = this.iframe.contentWindow;
+                    iframe.modifyPwd && iframe.modifyPwd();
+                    return false;
+                },
+                cancel:true
+            })
+        });
+    };
+    
+    var prevServerTime = null;
+    var serverTimer;
+    // 处理服务器时间偏移量, 如果误差大于2秒则抛出一个timeInvalid事件,由其他业务进行处理
+    function serverTimeHandler(serverTime, fn) {
+    	prevServerTime = null;
+    	if(serverTimer) {
+    		window.clearInterval(serverTimer);
+    		serverTimer = null;
+    	}
+
+    	var offset = serverTime - new Date().getTime();
+    	serverTimer = setInterval(function(){
+    		var newDate = new Date(new Date().getTime() + offset);
+    		fn && fn(newDate);
+        	if(prevServerTime && Math.abs(prevServerTime.getTime() - newDate.getTime()) > 2000){
+        		$(window).trigger('timeInvalid');
+        		window.clearInterval(serverTimer);
+        		prevServerTime = null;
+        		return;
+        	}
+        	prevServerTime = newDate;
+    	}, 0);
+    }
+
+   var timer = null;
+   function handleNowTime(){
+    	if(timer) {
+			window.clearInterval(timer);
+			timer = null;
+		}
+
+    	$.ajax({
+			url:basePath + '/nowTime',
+			dataType:'json',
+			async:false,
+			type:'post',
+			success: function(data){
+				data = data ? parseInt(data) : 0;
+	    		// 计算误差偏移量
+	    		__SERVER_TIME_OFFSET__ = data - new Date().getTime();
+	    		serverTimeHandler(data);
+	        	var fn = function(){
+	        		// 触发定时器
+	        		$(window).trigger('serverTimer', [getServerDate()]);
+	        	};
+
+	        	timer = window.setInterval(fn, 1000);
+	        	fn();
+			}
+		});
+    };
+
+    $(window).on('timeInvalid', handleNowTime);
+
+    //* END:CORE HANDLERS *//
+
+    return {
+
+        //main function to initiate template pages
+        init: function () {
+        	
+            //IMPORTANT!!!: Do not modify the core handlers call order.
+			handleSidebarToggler();
+            //core handlers
+            handleInit();
+			
+            handleResponsiveOnResize(); // set and handle responsive   
+			handleUniform();
+            //handleScrollers(); // handles slim scrolling contents 
+            handleResponsiveOnInit(); // handler responsive elements on page load
+            //layout handlers
+            handleNowTime();
+            handleSidebarMenu(); // handles main menuer
+            handleMenu();
+            handleModifypwd();
+        },
+
+        fixContentHeight: function () {
+            handleSidebarAndContentHeight();
+        },
+
+        addResponsiveHandler: function (func) {
+            responsiveHandlers.push(func);
+        },
+
+        // useful function to make equal height for contacts stand side by side
+        setEqualHeight: function (els) {
+            var tallestEl = 0;
+            els = jQuery(els);
+            els.each(function () {
+                    var currentHeight = $(this).height();
+                    if (currentHeight > tallestEl) {
+                        tallestColumn = currentHeight;
+                    }
+                });
+            els.height(tallestEl);
+        },
+
+        // wrapper function to scroll to an element
+        scrollTo: function (el, offeset) {
+            pos = el ? el.offset().top : 0;
+            jQuery('html,body').animate({
+                    scrollTop: pos + (offeset ? offeset : 0)
+                }, 'slow');
+        },
+
+        scrollTop: function () {
+            App.scrollTo();
+        },
+
+        // wrapper function to  block element(indicate loading)
+        blockUI: function (el, centerY) {
+            var el = jQuery(el); 
+            el.block({
+                    message: '<div class="mask-loading"></div>',
+                    centerY: centerY != undefined ? centerY : true,
+                    css: {
+                        top: '10%',
+                        border: 'none',
+                        padding: '2px',
+                        backgroundColor: 'none'
+                    },
+                    overlayCSS: {
+                        backgroundColor: '#000',
+                        opacity: 0.1,
+                        cursor: 'wait'
+                    }
+                });
+        },
+
+        // wrapper function to  un-block element(finish loading)
+        unblockUI: function (el) {
+            jQuery(el).unblock({
+                    onUnblock: function () {
+                        jQuery(el).removeAttr("style");
+                    }
+                });
+        },
+
+		// initializes uniform elements
+        initUniform: function (els) {
+
+            if (els) {
+                jQuery(els).each(function () {
+                        if ($(this).parents(".checker").size() == 0) {
+                            $(this).show();
+                            $(this).uniform();
+                        }
+                    });
+            } else {
+                handleUniform();
+            }
+        },
+
+        getURLParameter: function (paramName) {
+            var searchString = window.location.search.substring(1),
+                i, val, params = searchString.split("&");
+
+            for (i = 0; i < params.length; i++) {
+                val = params[i].split("=");
+                if (val[0] == paramName) {
+                    return unescape(val[1]);
+                }
+            }
+            return null;
+        },
+
+        // check for device touch support
+        isTouchDevice: function () {
+            try {
+                document.createEvent("TouchEvent");
+                return true;
+            } catch (e) {
+                return false;
+            }
+        },
+
+        isIE8: function () {
+            return isIE8;
+        },
+
+        isRTL: function () {
+            return isRTL;
+        },
+        
+        //绑定File的change事件
+        fileChange:function(files, callback){
+        	!(files instanceof jQuery) && (files = $(files));
+        	callback = callback || $.noop;
+        	
+        	var clear = function(container, $input, evt){
+        		container.addClass('fileupload-new');
+      
+        		if(/*@cc_on !@*/false){
+        		  var inputClone = $input.clone(true);
+    	          $input.after(inputClone);
+    	          return $input.remove();
+        		}
+        		$input.val('');
+        		
+        		if(evt) {
+        			$input.trigger('change', [ 'clear' ]);
+        	        evt.preventDefault();
+        		}
+        	},
+        	
+        	onFileChange = function(evt, invoked) {
+        		if (invoked === 'clear') return ;
+        		var $input = $(this), container = $input.closest('.input-append');
+        		
+        		var files = [];
+        		var file = evt.target.files !== undefined 
+        		? (files = evt.target.files)[0] 
+        		: (evt.target.value ? (files = [{ name: evt.target.value.replace(/^.+\\/, '') }])[0] : null)
+        		
+        		
+        		if(!file) {
+        			callback.call(this, null);
+        			return clear(container, $input);
+        		}
+        		
+        		if(callback.call(this, file, files) == true) {
+        		
+	        		var icon = 'icon-file';
+	        		if(file.name.indexOf('.') != -1) {
+	        			icon = ['icon-file-text-alt', 'icon-picture', 'icon-film', 'icon-music', 'icon-file'][
+	        					{'txt':0, 'doc':0,'docx':0,'xls':0,'xlsx':0,    					
+	        					'jpg':1,'png':1,'gif':1, 'gpeg':1,'bmp':1,'svg':1,'tiff':1,
+	        					'rmvb':2,'mp4':2,'3gp':2,'avi':2,'mov':2,'mpeg':2,'mpg':2,'ram':2,'qt':2,
+	        					'mp3':3,'mp1':3,'mp2':3,'midi':3,'wav':3,'ogg':3,'aac':3,'m4a':3
+	        			}[file.name.split('.').pop().toLowerCase()]] || 'icon-file';
+	        		}
+	        		
+	        		container.removeClass('fileupload-new');
+	        		if($('.btn-updload-remove', container).length){
+	        			$('.icon-updload-view', container).removeClass().addClass(icon + ' icon-updload-view');
+	        			return $('.text-updload-view', container).text(file.name);
+	        		}
+	
+	        		var html = '<i class="' + icon + ' icon-updload-view"></i> <span class="text-updload-view">' + file.name + '</span>';
+	        		$('.uneditable-input', container).addClass('text-overflow').html(html);
+	        		
+	        		//container.append('<button class="btn yellow btn-updload-remove" type="button">清空</button>');
+        		}
+        	};
+        	
+        	
+        	//点击删除按钮,清除相关信息
+        	files.closest('.input-append').on('click', '.btn-updload-remove', function(evt, data){
+        		clear($(evt.delegateTarget), $('input[type=file]', evt.delegateTarget));
+        	});
+        	
+        	files.on('change', onFileChange);
+        },
+        
+        get:function(){
+        	var msg = arguments[arguments.length-1];
+        	if(typeof msg !== 'string') {
+        		msg = '正在处理...';
+        	}
+        	
+        	arguments[0] = window.basePath + arguments[0]+ (/\?/.test(arguments[0]) ? '&' :'?') + 'r=' + Math.random();
+        	 
+            var waiting = art.dialog.top.$waiting(msg);
+            return $.getJSON.apply(null, arguments).always(function(){
+                waiting.close && waiting.close();
+            });
+        },
+
+        post:function(){
+        	var args = arguments;
+        	var msg = arguments[arguments.length-1];
+        	if(typeof msg !== 'string') {
+        		msg = '正在处理...';
+        	}
+        	
+            var waiting = art.dialog.top.$waiting(msg);
+            arguments[0] = window.basePath + arguments[0]+ (/\?/.test(arguments[0]) ? '&' :'?') + 'r=' + Math.random();
+            
+            if(args.length < 4) {
+                args = Array.prototype.slice.call(args);
+                args.push('json');
+            }
+
+            return $.post.apply(null, args).always(function () {
+                waiting.close && waiting.close();
+            });
+        },
+        
+        postJson: function(url, data, success){
+        	var args = arguments;
+        	var msg = arguments[arguments.length-1];
+        	if(typeof msg !== 'string') {
+        		msg = '正在处理...';
+        	}
+        	
+            var waiting = art.dialog.top.$waiting(msg);
+            url = window.basePath + url+ (/\?/.test(arguments[0]) ? '&' :'?') + 'r=' + Math.random();
+
+            return $.ajax({url: url, type: "POST", data: JSON.stringify(data), success: success, contentType: "application/json"}).always(function () {
+                waiting.close && waiting.close();
+            });
+        },
+        
+        // 秒数转换为时分秒
+        secondToDate: function(secondNumber){
+        	var hour = parseInt(secondNumber/3600);// 计算小时
+        	var minute = parseInt((secondNumber - hour * 3600)/60);// 计算分钟
+        	var second = parseInt((secondNumber - hour * 3600)%60);// 计算秒
+        	
+        	if (hour < 10) hour = "0" + hour;// 小时
+        	if (minute < 10) minute = "0" + minute;// 分钟
+        	if (second < 10) second = "0" + second;// 秒
+        	
+        	return hour + ":" + minute + ":" + second;
+        },
+        
+        //转义HTML为实体编码
+        escapeHtml:function(str) {
+        	if(str === undefined ||str === null) return '';
+        	
+        	var f = '&#', c;
+        	return typeof str != 'string'? str: str.replace(/"|&|'|<|>|[\x00-\x20]|[\x7f-\xff]/g, function($0){
+        		 c = $0.charCodeAt(0);
+        		 c == 0x20 && (c = 0xa0);
+        		 return f + c + ';';
+        	});
+        },
+        /**
+         * The workhorse; converts an object to x-www-form-urlencoded serialization.
+         * @param {Object} obj
+         * @return {String}
+         */
+        serialize : function (obj) {
+        	function param(obj) {
+        		 var query = '', name, value, subName, innerObj, i, p;
+
+                 for (name in obj) {
+                     value = obj[name];
+
+                     if (value instanceof Array) {
+                         for (i = 0; i < value.length; ++i) {
+                        	 if(value[i] instanceof Array || value[i] instanceof Object){
+                        		  innerObj = {};
+                                  innerObj[name + '[' + i + ']'] = value[i];
+                                  (p = param(innerObj)) && (query += p + '&');
+                        	 }
+                        	 else if (value !== undefined && value !== null)
+                                 query += encodeURIComponent(name) + '=' + encodeURIComponent(value[i]) + '&';
+                           
+                         }
+                     }
+                     else if (value instanceof Object) {
+                         for (subName in value) {
+                             innerObj = {};
+                             innerObj[name + '.' + subName] = value[subName];
+                             (p = param(innerObj)) && (query += p + '&');
+                         }
+                     }
+                     else if (value !== undefined && value !== null)
+                         query += encodeURIComponent(name) + '=' + encodeURIComponent(value) + '&';
+                 }
+
+                 return query.length ? query.substr(0, query.length - 1) : query;
+        	}
+           
+        	return param(obj);
+        },
+        
+        handleTabs: handleTabs, // handle tabs
+        getCookie:getCookie,
+        delCookie:delCookie,
+        setCookie:setCookie
+    };
+
+}();
